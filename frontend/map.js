@@ -409,22 +409,37 @@ class TrajectoryMapVisualizer {
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
 
-        // Smooth Spline Curve Drawing
-        ctx.beginPath();
+        // Segment splitting: breaks trails if consecutive points exceed 60px (prevents cross-building jumps)
         const pts = t.trail;
-        ctx.moveTo(pts[0][0], pts[0][1]);
-
-        if (pts.length === 2) {
-          ctx.lineTo(pts[1][0], pts[1][1]);
-        } else {
-          for (let i = 1; i < pts.length - 1; i++) {
-            const xc = (pts[i][0] + pts[i + 1][0]) / 2;
-            const yc = (pts[i][1] + pts[i + 1][1]) / 2;
-            ctx.quadraticCurveTo(pts[i][0], pts[i][1], xc, yc);
+        const segments = [];
+        let currSeg = [pts[0]];
+        for (let i = 1; i < pts.length; i++) {
+          const dist = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+          if (dist > 60.0) {
+            if (currSeg.length >= 2) segments.push(currSeg);
+            currSeg = [pts[i]];
+          } else {
+            currSeg.push(pts[i]);
           }
-          ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
         }
-        ctx.stroke();
+        if (currSeg.length >= 2) segments.push(currSeg);
+
+        // Draw Smooth Spline Curves per segment
+        for (const seg of segments) {
+          ctx.beginPath();
+          ctx.moveTo(seg[0][0], seg[0][1]);
+          if (seg.length === 2) {
+            ctx.lineTo(seg[1][0], seg[1][1]);
+          } else {
+            for (let i = 1; i < seg.length - 1; i++) {
+              const xc = (seg[i][0] + seg[i + 1][0]) / 2;
+              const yc = (seg[i][1] + seg[i + 1][1]) / 2;
+              ctx.quadraticCurveTo(seg[i][0], seg[i][1], xc, yc);
+            }
+            ctx.lineTo(seg[seg.length - 1][0], seg[seg.length - 1][1]);
+          }
+          ctx.stroke();
+        }
 
         // Trail point markers (spaced evenly)
         for (let i = 0; i < t.trail.length; i += 4) {

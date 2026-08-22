@@ -266,9 +266,8 @@ async def get_all_trajectories(session_id: Optional[str] = None):
 
 @router.delete("/trajectories")
 async def clear_trajectories():
-    """Clears all stored tracks and trajectory history from SQLite and the in-memory engine."""
+    """Clears all stored tracks and trajectory history from SQLite persistence."""
     storage.clear_all()
-    pipeline.trajectory_engine.clear()
     return {"status": "SUCCESS", "message": "All trajectories and tracks cleared."}
 
 

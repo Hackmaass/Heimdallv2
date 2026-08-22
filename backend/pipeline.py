@@ -301,8 +301,12 @@ class HeimdallPipeline:
 
             pts = [np.array(p.centroid, dtype=np.int32) for p in track.history]
             for i in range(1, len(pts)):
+                p1, p2 = pts[i - 1], pts[i]
+                # If distance between consecutive points > 60px, do not draw across the gap
+                if np.hypot(p2[0] - p1[0], p2[1] - p1[1]) > 60.0:
+                    continue
                 thickness = max(1, min(3, int(2.5 * (i / len(pts)))))
-                cv2.line(annotated, tuple(pts[i - 1]), tuple(pts[i]), bgr, thickness, cv2.LINE_AA)
+                cv2.line(annotated, tuple(p1), tuple(p2), bgr, thickness, cv2.LINE_AA)
 
         # 2. Draw Active Bounding Boxes & Tags (Confirmed Tracks Only)
         for track in trajectories:

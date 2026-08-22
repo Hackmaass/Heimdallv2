@@ -83,43 +83,44 @@ class TrajectoryEngine:
                 traj = self.tracks[tid]
                 last_pt = traj.history[-1] if traj.history else None
 
-                # ── Step 1: Outlier Jump Suppression & EMA Centroid Smoothing ──
+                # ── Step 1: Outlier Jump Gating & Track History Discontinuity Check ──
                 if last_pt is not None:
                     dx = raw_cx - last_pt.centroid[0]
                     dy = raw_cy - last_pt.centroid[1]
                     dist = math.hypot(dx, dy)
                     frames_elapsed = max(1, frame_index - last_pt.frame_index)
+                    max_allowed_dist = min(120.0, self.max_jump_px * min(frames_elapsed, 3))
 
-                    # If an association jumps unrealistically far, clamp the leap
-                    max_allowed_dist = self.max_jump_px * frames_elapsed
-                    if dist > max_allowed_dist and dist > 0.001:
-                        scale = max_allowed_dist / dist
-                        raw_cx = last_pt.centroid[0] + dx * scale
-                        raw_cy = last_pt.centroid[1] + dy * scale
+                    # If an association jumps across roads / buildings (> max_allowed_dist):
+                    # It is an ID swap error from the tracker. Break the trail history
+                    # so no line is drawn cutting across buildings or roadways.
+                    if dist > max_allowed_dist:
+                        traj.history.clear()
+                        smoothed_cx = raw_cx
+                        smoothed_cy = raw_cy
+                    else:
+                        # ── Step 2: Gap Interpolation for Missed/Occluded Frames ───
+                        if 1 < frames_elapsed <= 5:
+                            for f_step in range(1, frames_elapsed):
+                                frac = f_step / float(frames_elapsed)
+                                interp_t = last_pt.timestamp + frac * (timestamp - last_pt.timestamp)
+                                interp_cx = last_pt.centroid[0] + frac * (raw_cx - last_pt.centroid[0])
+                                interp_cy = last_pt.centroid[1] + frac * (raw_cy - last_pt.centroid[1])
+                                interp_pt = TrajectoryPoint(
+                                    frame_index=last_pt.frame_index + f_step,
+                                    timestamp=interp_t,
+                                    bbox=obj.bbox,
+                                    centroid=(interp_cx, interp_cy),
+                                    velocity=last_pt.velocity,
+                                    speed_estimate=last_pt.speed_estimate,
+                                    heading=last_pt.heading,
+                                    confidence=obj.confidence * 0.8,
+                                )
+                                traj.history.append(interp_pt)
 
-                    # ── Step 2: Gap Interpolation for Missed/Occluded Frames ───
-                    if frames_elapsed > 1 and frames_elapsed <= 6:
-                        # Linear interpolation across intermediate frames
-                        for f_step in range(1, frames_elapsed):
-                            frac = f_step / float(frames_elapsed)
-                            interp_t = last_pt.timestamp + frac * (timestamp - last_pt.timestamp)
-                            interp_cx = last_pt.centroid[0] + frac * (raw_cx - last_pt.centroid[0])
-                            interp_cy = last_pt.centroid[1] + frac * (raw_cy - last_pt.centroid[1])
-                            interp_pt = TrajectoryPoint(
-                                frame_index=last_pt.frame_index + f_step,
-                                timestamp=interp_t,
-                                bbox=obj.bbox,
-                                centroid=(interp_cx, interp_cy),
-                                velocity=last_pt.velocity,
-                                speed_estimate=last_pt.speed_estimate,
-                                heading=last_pt.heading,
-                                confidence=obj.confidence * 0.8,
-                            )
-                            traj.history.append(interp_pt)
-
-                    # EMA exponential moving average for smooth, continuous line
-                    smoothed_cx = self.ema_alpha * raw_cx + (1.0 - self.ema_alpha) * last_pt.centroid[0]
-                    smoothed_cy = self.ema_alpha * raw_cy + (1.0 - self.ema_alpha) * last_pt.centroid[1]
+                        # EMA exponential moving average for smooth, continuous line
+                        smoothed_cx = self.ema_alpha * raw_cx + (1.0 - self.ema_alpha) * last_pt.centroid[0]
+                        smoothed_cy = self.ema_alpha * raw_cy + (1.0 - self.ema_alpha) * last_pt.centroid[1]
 
                 traj.last_seen = timestamp
                 traj.last_frame = frame_index
