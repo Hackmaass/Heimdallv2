@@ -409,20 +409,29 @@ class TrajectoryMapVisualizer {
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
 
+        // Smooth Spline Curve Drawing
         ctx.beginPath();
-        for (let i = 0; i < t.trail.length; i++) {
-          const pt = t.trail[i];
-          if (i === 0) ctx.moveTo(pt[0], pt[1]);
-          else ctx.lineTo(pt[0], pt[1]);
+        const pts = t.trail;
+        ctx.moveTo(pts[0][0], pts[0][1]);
+
+        if (pts.length === 2) {
+          ctx.lineTo(pts[1][0], pts[1][1]);
+        } else {
+          for (let i = 1; i < pts.length - 1; i++) {
+            const xc = (pts[i][0] + pts[i + 1][0]) / 2;
+            const yc = (pts[i][1] + pts[i + 1][1]) / 2;
+            ctx.quadraticCurveTo(pts[i][0], pts[i][1], xc, yc);
+          }
+          ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
         }
         ctx.stroke();
 
-        // Trail point markers
-        for (let i = 0; i < t.trail.length; i += 3) {
+        // Trail point markers (spaced evenly)
+        for (let i = 0; i < t.trail.length; i += 4) {
           const pt = t.trail[i];
           ctx.fillStyle = isSelected ? "#FFFFFF" : baseColor;
           ctx.beginPath();
-          ctx.arc(pt[0], pt[1], (isSelected ? 2.5 : 1.6) / this.scale, 0, Math.PI * 2);
+          ctx.arc(pt[0], pt[1], (isSelected ? 2.5 : 1.5) / this.scale, 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -531,4 +540,28 @@ class TrajectoryMapVisualizer {
       ctx.textAlign = "start";
     }
   }
+
+  clear() {
+    this.tracks.clear();
+    this.selectedTrackId = null;
+    this.bgImage = null;
+    this.scale = 1.0;
+    this.panX = 0;
+    this.panY = 0;
+    this.hasAutoFitted = false;
+    this.render();
+  }
+
+  resetView() {
+    this.scale = 1.0;
+    this.panX = 0;
+    this.panY = 0;
+    this.hasAutoFitted = false;
+    this.render();
+  }
+
+  reset() {
+    this.clear();
+  }
 }
+

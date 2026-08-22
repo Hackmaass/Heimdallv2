@@ -27,6 +27,14 @@ class TrajectoryStorage:
         conn.row_factory = sqlite3.Row
         return conn
 
+    def clear_all(self) -> None:
+        """Clears all stored tracks and trajectory points from SQLite."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM heimdall_trajectory_points")
+            cursor.execute("DELETE FROM heimdall_tracks")
+            conn.commit()
+
     def _init_db(self) -> None:
         with self._get_connection() as conn:
             cursor = conn.cursor()

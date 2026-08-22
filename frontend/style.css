@@ -23,6 +23,7 @@
   --accent-crimson: #f43f5e;
   --accent-purple: #a855f7;
   --accent-green: #00ffb2;
+  --accent-primary: #6366f1;
 
   --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
   --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -810,4 +811,47 @@ table.tactical-table tr.selected {
   border-color: var(--accent-lime);
   color: var(--accent-lime);
   background: rgba(200, 242, 58, 0.08);
+}
+
+/* ── Toggle Switch Component ────────────────────────────────────────────── */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-active);
+  border-radius: 24px;
+  transition: all 0.25s cubic-bezier(.4,0,.2,1);
+}
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 2px;
+  bottom: 2px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: all 0.25s cubic-bezier(.4,0,.2,1);
+}
+.toggle-switch input:checked + .toggle-slider {
+  background: rgba(99,102,241,0.25);
+  border-color: var(--accent-primary);
+}
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+  background: var(--accent-primary);
+  box-shadow: 0 0 8px rgba(99,102,241,0.5);
 }

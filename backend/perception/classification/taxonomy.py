@@ -44,6 +44,7 @@ RAW_MAPPING: Dict[str, Tuple[RoadUserClass, bool]] = {
     # Person / Pedestrian
     "person": (RoadUserClass.PERSON, False),
     "pedestrian": (RoadUserClass.PERSON, False),
+    "people": (RoadUserClass.PERSON, False),
     "human": (RoadUserClass.PERSON, False),
     "person_2": (RoadUserClass.PERSON, False),
 
@@ -54,6 +55,7 @@ RAW_MAPPING: Dict[str, Tuple[RoadUserClass, bool]] = {
 
     # Motorcycle / Scooter
     "motorcycle": (RoadUserClass.MOTORCYCLE, False),
+    "motor": (RoadUserClass.MOTORCYCLE, False),
     "motorbike": (RoadUserClass.MOTORCYCLE, False),
     "scooter": (RoadUserClass.MOTORCYCLE, False),
     "moped": (RoadUserClass.MOTORCYCLE, False),
@@ -94,12 +96,15 @@ RAW_MAPPING: Dict[str, Tuple[RoadUserClass, bool]] = {
     "minibus": (RoadUserClass.BUS, False),
     "coach": (RoadUserClass.BUS, False),
 
-    # Other / Specialized Urban Vehicles
+    # Other / Specialized Urban Vehicles & Three-Wheelers (VisDrone)
     "auto": (RoadUserClass.OTHER_VEHICLE, False),
     "auto rickshaw": (RoadUserClass.OTHER_VEHICLE, False),
     "autorickshaw": (RoadUserClass.OTHER_VEHICLE, False),
     "rikshaw": (RoadUserClass.OTHER_VEHICLE, False),
     "rickshaw": (RoadUserClass.OTHER_VEHICLE, False),
+    "tricycle": (RoadUserClass.OTHER_VEHICLE, False),
+    "awning-tricycle": (RoadUserClass.OTHER_VEHICLE, False),
+    "awning_tricycle": (RoadUserClass.OTHER_VEHICLE, False),
     "tuk-tuk": (RoadUserClass.OTHER_VEHICLE, False),
     "tuktuk": (RoadUserClass.OTHER_VEHICLE, False),
     "cart": (RoadUserClass.OTHER_VEHICLE, False),
@@ -113,27 +118,60 @@ RAW_MAPPING: Dict[str, Tuple[RoadUserClass, bool]] = {
 }
 
 
+# Explicit non-traffic / environmental objects to reject immediately
+NON_TRAFFIC_CLASSES = {
+    "potted plant", "plant", "tree", "foliage", "vegetation",
+    "boat", "ship", "vessel", "airplane", "aeroplane", "train",
+    "umbrella", "bench", "chair", "couch", "bed", "dining table",
+    "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+    "traffic light", "fire hydrant", "stop sign", "parking meter",
+    "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe",
+    "backpack", "handbag", "tie", "suitcase", "frisbee", "skis", "snowboard",
+    "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl",
+    "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake",
+}
+
+
+def is_valid_traffic_class(raw_class_name: str) -> bool:
+    """Returns True if raw class is a legitimate traffic participant."""
+    raw_clean = str(raw_class_name).strip().lower()
+    if raw_clean in NON_TRAFFIC_CLASSES:
+        return False
+    if raw_clean in RAW_MAPPING:
+        return True
+    return any(key in raw_clean for key in RAW_MAPPING.keys())
+
+
 def normalize_class(
     raw_class_name: str,
     confidence: float,
     bbox: Optional[list] = None,
-) -> NormalizedClassification:
+) -> Optional[NormalizedClassification]:
     """
     Normalizes arbitrary detector class names into standardized RoadUserClass taxonomy.
-    Preserves raw class label and flags uncertain classifications (e.g. generic truck/vehicle).
+    Rejects non-traffic objects (plants, trees, furniture, etc.) and returns None if invalid.
     """
     raw_clean = str(raw_class_name).strip().lower()
+
+    if raw_clean in NON_TRAFFIC_CLASSES:
+        return None
+
+    road_class: Optional[RoadUserClass] = None
+    uncertain = False
 
     if raw_clean in RAW_MAPPING:
         road_class, uncertain = RAW_MAPPING[raw_clean]
     else:
-        road_class = RoadUserClass.OTHER_VEHICLE
-        uncertain = True
         for key, (mapped_cls, is_unc) in RAW_MAPPING.items():
             if key in raw_clean:
                 road_class = mapped_cls
                 uncertain = is_unc
                 break
+
+    if road_class is None:
+        # Not a recognized road user
+        return None
 
     if raw_clean == "truck" and bbox is not None and len(bbox) == 4:
         w = max(1.0, float(bbox[2] - bbox[0]))
@@ -158,3 +196,4 @@ def normalize_class(
         color_hex=hex_color,
         color_bgr=bgr_color,
     )
+

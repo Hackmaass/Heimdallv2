@@ -392,9 +392,13 @@
           <div class="form-group">
             <label>PERCEPTION MODEL</label>
             <select id="selectModel">
-              <option value="yolov8n.pt" selected>YOLOv8 Nano (Fast / Power-Efficient)</option>
-              <option value="yolov8s.pt">YOLOv8 Small (High Precision)</option>
-              <option value="yolov8s-world.pt">YOLO-World (Open-Vocabulary)</option>
+              <option value="yolov8s-visdrone.pt" selected>✦ YOLOv8s VisDrone (Aerial Drone Specialist - Recommended)</option>
+              <option value="yolov8x-visdrone.pt">YOLOv8x VisDrone (Maximum Aerial Drone Precision)</option>
+              <option value="yolov8s.pt">YOLOv8 Small (Standard COCO)</option>
+              <option value="yolov8m.pt">YOLOv8 Medium (High Density Traffic)</option>
+              <option value="yolov8x.pt">YOLOv8 Extra-Large (COCO RTX GPU)</option>
+              <option value="yolov8n.pt">YOLOv8 Nano (Ultra-Fast / Power-Efficient)</option>
+              <option value="yolov8s-worldv2.pt">YOLO-World v2 (Open-Vocabulary)</option>
             </select>
           </div>
 
@@ -424,11 +428,36 @@
         </div>
 
         <!-- Checkbox Options -->
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; margin-bottom:16px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; margin-bottom:12px;">
           <label class="checkbox-label">
             <input type="checkbox" id="checkSaveVideo" checked>
             <span>Render & Save Annotated Video (.mp4)</span>
           </label>
+        </div>
+
+        <!-- SAHI 4K Enhancement Toggle -->
+        <div class="sahi-control-block" style="background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(14,165,233,0.10)); border:1px solid rgba(99,102,241,0.35); padding:14px 16px; border-radius:8px; margin-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div>
+              <div style="font-weight:700; font-size:11px; letter-spacing:0.6px; color:var(--accent-primary);">⚡ SAHI — SLICED AIDED HYPER INFERENCE</div>
+              <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Slices 4K frames into overlapping tiles for high-recall small-object detection</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="checkEnableSAHI">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <div id="sahiOptions" style="display:none; margin-top:10px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label style="font-size:10px;">SLICE TILE SIZE (PX)</label>
+              <select id="selectSAHISliceSize">
+                <option value="640">640 px (Maximum Recall / Slow)</option>
+                <option value="960" selected>960 px (Balanced ✦ Recommended)</option>
+                <option value="1280">1280 px (Fast / Large Objects)</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div style="display:flex; justify-content:flex-end; gap:8px; border-top:1px solid var(--border-subtle); padding-top:14px;">

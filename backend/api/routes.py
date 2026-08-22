@@ -66,6 +66,8 @@ def _run_pipeline_job(
         save_annotated_video=req.save_annotated_video if req.save_annotated_video is not None else True,
         storage=storage,
         output_dir="outputs",
+        enable_sahi=req.enable_sahi if req.enable_sahi is not None else False,
+        sahi_slice_size=req.sahi_slice_size or 960,
     )
 
     def on_frame(payload: Dict[str, Any], frame_bgr):
@@ -260,6 +262,15 @@ async def get_all_trajectories(session_id: Optional[str] = None):
     """Retrieves all tracked objects along with their complete spatial trails for the 2D visualizer."""
     trajs = storage.get_all_trajectories_with_trails(session_id=session_id)
     return {"total": len(trajs), "trajectories": trajs}
+
+
+@router.delete("/trajectories")
+async def clear_trajectories():
+    """Clears all stored tracks and trajectory history from SQLite and the in-memory engine."""
+    storage.clear_all()
+    pipeline.trajectory_engine.clear()
+    return {"status": "SUCCESS", "message": "All trajectories and tracks cleared."}
+
 
 
 @router.get("/tracks")

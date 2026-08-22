@@ -1,17 +1,20 @@
 # BoT-SORT Tracker Configuration
-# Tuned for Aerial Drone Intersection Surveillance & Dense Traffic
+# Tuned for Aerial Drone Multi-Class Traffic (Vehicles + Pedestrians + 2-Wheelers)
+# GOAL: Highly accurate, persistent single-ID tracking with zero duplicate boxes.
 
 tracker_type: botsort
-track_high_thresh: 0.35  # Threshold for the first association
-track_low_thresh: 0.10   # Threshold for the second association (recovering occluded/low conf boxes)
-new_track_thresh: 0.40   # Threshold to initialize a new track
-track_buffer: 60         # Frames to buffer lost tracks (preserves IDs across ~2s occlusion at 30fps)
-match_thresh: 0.75       # Matching threshold for IoU association
+track_high_thresh: 0.20  # Stage 1 matching threshold
+track_low_thresh: 0.05   # Stage 2 matching: recovers low-confidence/occluded detections
+new_track_thresh: 0.35   # Solid threshold to initialize a new track (prevents spurious ghost tracks)
+track_buffer: 90         # Frames to keep lost track alive (~3s at 30fps)
+match_thresh: 0.75       # Matching cost threshold for IoU association
+fuse_score: False        # Pure geometric & motion matching for aerial consistency
 
-# Camera Motion Compensation (GMC) - essential for moving drone gimbal/flight
-gmc_method: sparseOptFlow  # Options: sparseOptFlow, orb, sift, ecc, none
+# Camera Motion Compensation (GMC) - essential for drone hovering/pan
+gmc_method: sparseOptFlow
 
 # Appearance / Re-ID Feature Extraction
 proximity_thresh: 0.5
 appearance_thresh: 0.25
 with_reid: false
+model: auto

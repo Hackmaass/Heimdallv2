@@ -16,6 +16,7 @@ from .ingestion.file_source import FileSource
 from .perception.tracking.base import BaseTracker, TrackingResult
 from .perception.tracking.botsort_tracker import BoTSORTTracker
 from .perception.tracking.bytetrack_tracker import ByteTrackTracker
+from .perception.tracking.sahi_botsort_tracker import SAHIBoTSORTTracker
 from .trajectories.engine import TrajectoryEngine
 from .trajectories.storage import TrajectoryStorage
 from .trajectories.models import TrackTrajectory
@@ -61,6 +62,8 @@ class HeimdallPipeline:
         output_dir: str = "outputs",
         process_every_n_frames: int = 1,
         save_annotated_video: bool = True,
+        enable_sahi: bool = False,
+        sahi_slice_size: int = 960,
     ):
         self.output_dir = output_dir
         os.makedirs(output_dir, exist_ok=True)
@@ -71,6 +74,15 @@ class HeimdallPipeline:
         # Initialize Tracker
         if tracker:
             self.tracker = tracker
+        elif enable_sahi:
+            self.tracker = SAHIBoTSORTTracker(
+                model_name_or_path=model_path,
+                confidence_threshold=confidence_threshold,
+                iou_threshold=iou_threshold,
+                img_size=img_size,
+                device=device,
+                slice_size=sahi_slice_size,
+            )
         elif tracker_type == "bytetrack":
             self.tracker = ByteTrackTracker(
                 model_name_or_path=model_path,
@@ -276,9 +288,9 @@ class HeimdallPipeline:
         annotated = frame.copy()
         h, w = annotated.shape[:2]
 
-        # 1. Draw Trajectory Trails
+        # 1. Draw Trajectory Trails (Anti-Aliased Smooth Motion Trails)
         for track in trajectories:
-            if not track.history or len(track.history) < 2:
+            if not track.history or len(track.history) < 2 or track.total_frames < 2:
                 continue
 
             color = track.normalized_class
@@ -289,13 +301,12 @@ class HeimdallPipeline:
 
             pts = [np.array(p.centroid, dtype=np.int32) for p in track.history]
             for i in range(1, len(pts)):
-                # Fade alpha from past to present
-                thickness = max(1, int(2.5 * (i / len(pts))))
-                cv2.line(annotated, tuple(pts[i - 1]), tuple(pts[i]), bgr, thickness)
+                thickness = max(1, min(3, int(2.5 * (i / len(pts)))))
+                cv2.line(annotated, tuple(pts[i - 1]), tuple(pts[i]), bgr, thickness, cv2.LINE_AA)
 
-        # 2. Draw Active Bounding Boxes & Tags
+        # 2. Draw Active Bounding Boxes & Tags (Confirmed Tracks Only)
         for track in trajectories:
-            if not track.is_active:
+            if not track.is_active or track.total_frames < 2:
                 continue
 
             x1, y1, x2, y2 = [int(v) for v in track.current_bbox]
@@ -390,11 +401,11 @@ class HeimdallPipeline:
                     "duration": round(t.duration_seconds, 1),
                     "trail": [
                         [round(p.centroid[0], 1), round(p.centroid[1], 1)]
-                        for p in t.history[-25:]
+                        for p in t.history[-100:]
                     ],
                 }
                 for t in trajectories
-                if t.is_active
+                if t.is_active and t.total_frames >= 2
             ],
-            "total_unique": len(self.trajectory_engine.tracks),
+            "total_unique": len([t for t in self.trajectory_engine.tracks.values() if t.total_frames >= 2]),
         }

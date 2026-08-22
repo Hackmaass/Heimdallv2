@@ -168,8 +168,29 @@ function initEventListeners() {
     startProcessingJob();
   };
 
-  document.getElementById("btnResetView").onclick = () => {
-    visualizer.resetView();
+  document.getElementById("btnResetView").onclick = async () => {
+    // 1. Clear 2D canvas visualizer & trails
+    visualizer.clear();
+
+    // 2. Clear backend database & in-memory engine trajectories
+    try {
+      await fetch("/api/trajectories", { method: "DELETE" });
+    } catch (e) {
+      console.warn("Failed to clear backend trajectories:", e);
+    }
+
+    // 3. Reset live telemetry road user counters
+    document.getElementById("countCars").textContent = "0";
+    document.getElementById("countBikes").textContent = "0";
+    document.getElementById("countBuses").textContent = "0";
+    document.getElementById("countHgv").textContent = "0";
+    document.getElementById("countLgv").textContent = "0";
+    document.getElementById("countPedestrians").textContent = "0";
+
+    // 4. Clear table and hide inspector card
+    document.getElementById("tracksTableBody").innerHTML = "";
+    const inspector = document.getElementById("inspectorCard");
+    if (inspector) inspector.style.display = "none";
   };
 
   document.getElementById("btnAutoFit").onclick = () => {
@@ -386,6 +407,15 @@ function initEventListeners() {
       updateDurationUI();
     };
   });
+
+  // SAHI Toggle — show/hide slice size options
+  const sahiCheckbox = document.getElementById("checkEnableSAHI");
+  const sahiOptions = document.getElementById("sahiOptions");
+  if (sahiCheckbox && sahiOptions) {
+    sahiCheckbox.onchange = () => {
+      sahiOptions.style.display = sahiCheckbox.checked ? "block" : "none";
+    };
+  }
 }
 
 async function handleFileUpload(file) {
@@ -464,6 +494,8 @@ async function startProcessingJob() {
   const conf = parseFloat(document.getElementById("inputConf").value) || 0.25;
   const frameStep = parseInt(document.getElementById("selectFrameStep").value) || 1;
   const saveVideo = document.getElementById("checkSaveVideo").checked;
+  const enableSahi = document.getElementById("checkEnableSAHI").checked;
+  const sahiSliceSize = parseInt(document.getElementById("selectSAHISliceSize").value) || 960;
 
   const isLimit = document.getElementById("radioLimitDuration").checked;
   const durationSec = isLimit ? (parseFloat(document.getElementById("inputDuration").value) || null) : null;
@@ -483,6 +515,8 @@ async function startProcessingJob() {
       save_annotated_video: saveVideo,
       duration_seconds: durationSec,
       start_seconds: startOffsetSec,
+      enable_sahi: enableSahi,
+      sahi_slice_size: sahiSliceSize,
     };
 
     const res = await fetch("/api/video/process", {
