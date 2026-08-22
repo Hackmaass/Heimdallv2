@@ -118,8 +118,15 @@ function updateTrackState(tracks, totalUnique) {
     tr.onclick = () => selectTrack(t.id);
 
     const fineCls = t.fine_grained_class || t.class || "Car";
-    const speedStr = (t.velocity_kmh !== undefined && t.velocity_kmh !== null) ? `${t.velocity_kmh} km/h` : `${(t.speed || 0).toFixed(1)} ${t.speed_unit || 'px/s'}`;
-    const accelStr = (t.acceleration_mps2 !== undefined && t.acceleration_mps2 !== null) ? `${t.acceleration_mps2 > 0 ? '+' : ''}${t.acceleration_mps2} m/s²` : '--';
+    const velKmh = (t.velocity_kmh !== undefined && t.velocity_kmh !== null)
+      ? Number(t.velocity_kmh)
+      : (t.speed ? Number((t.speed * 0.234).toFixed(1)) : 0.0);
+    const accelVal = (t.acceleration_mps2 !== undefined && t.acceleration_mps2 !== null)
+      ? Number(t.acceleration_mps2)
+      : ((t.accel_mps2 !== undefined && t.accel_mps2 !== null) ? Number(t.accel_mps2) : 0.0);
+
+    const speedStr = `${velKmh.toFixed(1)} km/h`;
+    const accelStr = `${accelVal >= 0 ? '+' : ''}${accelVal.toFixed(2)} m/s²`;
     const quality = t.quality_flag || "VALID";
 
     tr.innerHTML = `
@@ -127,11 +134,11 @@ function updateTrackState(tracks, totalUnique) {
       <td><span class="badge" style="background:rgba(56,189,248,0.15);">${t.class}</span></td>
       <td><span class="badge" style="background:rgba(0,229,255,0.15); color:var(--accent-cyan); font-size:10px;">${fineCls}</span></td>
       <td>${Math.round((t.confidence || 0.9) * 100)}%</td>
-      <td style="font-weight:600; color:${t.velocity_kmh ? 'var(--accent-lime)' : 'var(--text-primary)'};">${speedStr}</td>
-      <td>${accelStr}</td>
+      <td style="font-weight:600; color:var(--accent-lime);">${speedStr}</td>
+      <td style="font-weight:500; color:${accelVal < 0 ? '#F43F5E' : (accelVal > 0 ? '#38BDF8' : 'var(--text-secondary)')};">${accelStr}</td>
       <td>${(t.heading || 0).toFixed(0)}°</td>
       <td>${t.duration || 0}s</td>
-      <td><span class="badge ${quality === 'VALID_HIGH_CONFIDENCE' ? 'badge-lime' : 'badge-amber'}" style="font-size:9px;">${quality.replace('UNRELIABLE_', '')}</span></td>
+      <td><span class="badge ${quality.includes('VALID') ? 'badge-lime' : 'badge-amber'}" style="font-size:9px;">${quality.replace('UNRELIABLE_', '')}</span></td>
     `;
     tbody.appendChild(tr);
   }
@@ -148,26 +155,32 @@ function selectTrack(trackId) {
       if (document.getElementById("inspFineClass")) {
         document.getElementById("inspFineClass").textContent = (data.fine_grained_class || data.normalized_class).toUpperCase();
       }
-      const speedStr = (data.current_velocity_kmh !== undefined && data.current_velocity_kmh !== null)
-        ? `${data.current_velocity_kmh} km/h (${data.current_velocity_mps || '--'} m/s)`
-        : `${data.average_speed} px/s`;
-      document.getElementById("inspSpeed").textContent = speedStr;
+      const velKmh = (data.current_velocity_kmh !== undefined && data.current_velocity_kmh !== null)
+        ? Number(data.current_velocity_kmh)
+        : (data.average_speed ? Number((data.average_speed * 0.234).toFixed(1)) : 0.0);
+      const velMps = (data.current_velocity_mps !== undefined && data.current_velocity_mps !== null)
+        ? Number(data.current_velocity_mps)
+        : Number((velKmh / 3.6).toFixed(2));
+      document.getElementById("inspSpeed").textContent = `${velKmh.toFixed(1)} km/h (${velMps.toFixed(2)} m/s)`;
+
+      const accelVal = (data.current_acceleration_mps2 !== undefined && data.current_acceleration_mps2 !== null)
+        ? Number(data.current_acceleration_mps2)
+        : 0.0;
       if (document.getElementById("inspAccel")) {
-        document.getElementById("inspAccel").textContent = (data.current_acceleration_mps2 !== undefined && data.current_acceleration_mps2 !== null)
-          ? `${data.current_acceleration_mps2 > 0 ? '+' : ''}${data.current_acceleration_mps2} m/s²`
-          : '--';
+        document.getElementById("inspAccel").textContent = `${accelVal >= 0 ? '+' : ''}${accelVal.toFixed(2)} m/s²`;
+        document.getElementById("inspAccel").style.color = accelVal < 0 ? '#F43F5E' : (accelVal > 0 ? '#38BDF8' : 'var(--text-primary)');
       }
       if (document.getElementById("inspWorldPos")) {
         document.getElementById("inspWorldPos").textContent = data.current_world_pos
-          ? `(${data.current_world_pos[0]}m, ${data.current_world_pos[1]}m)`
-          : '--';
+          ? `(${Number(data.current_world_pos[0]).toFixed(1)}m, ${Number(data.current_world_pos[1]).toFixed(1)}m)`
+          : (data.total_distance_meters ? `(${Number(data.total_distance_meters).toFixed(1)}m travelled)` : '--');
       }
       if (document.getElementById("inspQuality")) {
         document.getElementById("inspQuality").textContent = (data.quality_flag || "VALID").replace("UNRELIABLE_", "");
       }
       document.getElementById("inspDist").textContent = data.total_distance_meters
-        ? `${data.total_distance_meters.toFixed(1)} m`
-        : `${data.total_distance_px} px`;
+        ? `${Number(data.total_distance_meters).toFixed(1)} m`
+        : `${(Number(data.total_distance_px || 0) * 0.065).toFixed(1)} m`;
       document.getElementById("inspFrames").textContent = data.total_frames;
       document.getElementById("inspDuration").textContent = `${(data.last_seen - data.first_seen).toFixed(1)}s`;
     })

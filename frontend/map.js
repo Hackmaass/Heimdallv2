@@ -556,8 +556,14 @@ class TrajectoryMapVisualizer {
         const fontSize = Math.max(10, Math.min(13, Math.round(11 / this.scale)));
         ctx.font = `bold ${fontSize}px monospace`;
         const clsLabel = t.fine_grained_class || t.class;
-        const speedText = t.velocity_kmh !== undefined ? ` ${t.velocity_kmh}km/h` : (this.layerSpeed ? ` ${t.speed.toFixed(0)}px/s` : "");
-        const label = `#${t.id} ${clsLabel}${speedText}`;
+        const velKmh = (t.velocity_kmh !== undefined && t.velocity_kmh !== null)
+          ? Number(t.velocity_kmh)
+          : (t.speed ? Number((t.speed * 0.234).toFixed(1)) : 0.0);
+        const accelVal = (t.acceleration_mps2 !== undefined && t.acceleration_mps2 !== null)
+          ? Number(t.acceleration_mps2)
+          : ((t.accel_mps2 !== undefined && t.accel_mps2 !== null) ? Number(t.accel_mps2) : 0.0);
+        const accelText = accelVal !== 0.0 ? ` (${accelVal > 0 ? '+' : ''}${accelVal.toFixed(1)}m/s²)` : '';
+        const label = `#${t.id} ${clsLabel} ${velKmh.toFixed(0)}km/h${accelText}`;
         const textWidth = ctx.measureText(label).width;
 
         ctx.fillStyle = "rgba(15, 23, 42, 0.88)";

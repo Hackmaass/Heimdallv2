@@ -105,14 +105,17 @@ class PixelSpeedEstimator(BaseSpeedEstimator):
         curr_cx = (current_bbox[0] + current_bbox[2]) / 2.0
         curr_cy = (current_bbox[1] + current_bbox[3]) / 2.0
 
+        # Nominal aerial optical Ground Sampling Distance (GSD ~0.065 m/px for 1080p drone surveillance)
+        gsd_m_per_px = 0.065
+
         if prev_bbox is None:
             return KinematicState(
                 speed_value=0.0,
-                speed_unit="px/s",
-                velocity_mps=None,
-                velocity_kmh=None,
-                acceleration_mps2=None,
-                world_pos=None,
+                speed_unit="km/h",
+                velocity_mps=0.0,
+                velocity_kmh=0.0,
+                acceleration_mps2=0.0,
+                world_pos=(round(curr_cx * gsd_m_per_px, 2), round(curr_cy * gsd_m_per_px, 2)),
                 heading_deg=0.0,
                 distance_increment_m=0.0,
                 is_calibrated=False,
@@ -120,8 +123,8 @@ class PixelSpeedEstimator(BaseSpeedEstimator):
                     is_calibrated=False,
                     history_length=history_length,
                     dt=dt,
-                    speed_mps=None,
-                    accel_mps2=None,
+                    speed_mps=0.0,
+                    accel_mps2=0.0,
                 ),
             )
 
@@ -131,7 +134,18 @@ class PixelSpeedEstimator(BaseSpeedEstimator):
         dx = curr_cx - prev_cx
         dy = curr_cy - prev_cy
         dist_px = math.hypot(dx, dy)
-        speed_px_s = dist_px / dt
+        dist_m = dist_px * gsd_m_per_px
+        speed_m_s = dist_m / dt
+        speed_km_h = speed_m_s * 3.6
+
+        # Derived acceleration in m/s²
+        if prev_velocity_mps is not None:
+            accel_m_s2 = (speed_m_s - prev_velocity_mps) / dt
+        else:
+            accel_m_s2 = 0.0
+
+        # Physical vehicle bounds clamping (-15 m/s² to +10 m/s²)
+        accel_m_s2 = max(-15.0, min(10.0, accel_m_s2))
 
         heading_deg = 0.0
         if dist_px > 1.0:
@@ -139,21 +153,21 @@ class PixelSpeedEstimator(BaseSpeedEstimator):
             heading_deg = (math.degrees(rad) + 360.0) % 360.0
 
         return KinematicState(
-            speed_value=round(speed_px_s, 2),
-            speed_unit="px/s",
-            velocity_mps=None,
-            velocity_kmh=None,
-            acceleration_mps2=None,
-            world_pos=None,
+            speed_value=round(speed_km_h, 1),
+            speed_unit="km/h",
+            velocity_mps=round(speed_m_s, 2),
+            velocity_kmh=round(speed_km_h, 1),
+            acceleration_mps2=round(accel_m_s2, 2),
+            world_pos=(round(curr_cx * gsd_m_per_px, 2), round(curr_cy * gsd_m_per_px, 2)),
             heading_deg=round(heading_deg, 1),
-            distance_increment_m=0.0,
+            distance_increment_m=round(dist_m, 2),
             is_calibrated=False,
             quality_assessment=KinematicQualityAssessor.assess(
                 is_calibrated=False,
                 history_length=history_length,
                 dt=dt,
-                speed_mps=None,
-                accel_mps2=None,
+                speed_mps=speed_m_s,
+                accel_mps2=accel_m_s2,
             ),
         )
 
@@ -258,9 +272,13 @@ class GroundPlaneSpeedEstimator(BaseSpeedEstimator):
         speed_km_h = speed_m_s * 3.6
 
         # Derived acceleration in m/s²
-        accel_m_s2: Optional[float] = None
         if prev_velocity_mps is not None:
             accel_m_s2 = (speed_m_s - prev_velocity_mps) / dt
+        else:
+            accel_m_s2 = 0.0
+
+        # Physical bounds clamping (-15 m/s² to +10 m/s²)
+        accel_m_s2 = max(-15.0, min(10.0, accel_m_s2))
 
         # Metric heading in degrees [0, 360)
         heading_deg = 0.0

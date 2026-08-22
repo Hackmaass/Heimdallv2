@@ -218,6 +218,81 @@ class TrajectoryStorage:
                 })
         return result
 
+    def get_track(self, track_id: int) -> Optional[Dict[str, Any]]:
+        """Retrieves a single track record with latest kinematic metrics."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM heimdall_tracks WHERE track_id = ?", (track_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None
+            t = dict(row)
+
+            cursor.execute("""
+                SELECT frame_index, timestamp, cx, cy, x1, y1, x2, y2, speed, heading,
+                       world_x, world_y, velocity_mps, velocity_kmh, accel_mps2, quality_flag, fine_grained_class
+                FROM heimdall_trajectory_points
+                WHERE track_id = ?
+                ORDER BY frame_index ASC
+            """, (track_id,))
+            pts = cursor.fetchall()
+            latest_p = pts[-1] if pts else None
+
+            # Real velocity in km/h & m/s
+            vel_kmh = latest_p["velocity_kmh"] if latest_p and latest_p["velocity_kmh"] is not None else round(t["average_speed"] * 0.234, 1)
+            vel_mps = latest_p["velocity_mps"] if latest_p and latest_p["velocity_mps"] is not None else round(vel_kmh / 3.6, 2)
+            accel_mps2 = latest_p["accel_mps2"] if latest_p and latest_p["accel_mps2"] is not None else 0.0
+
+            return {
+                "track_id": t["track_id"],
+                "normalized_class": t["normalized_class"],
+                "raw_class": t["raw_class"],
+                "fine_grained_class": t.get("fine_grained_class") or (latest_p["fine_grained_class"] if latest_p else t["normalized_class"]),
+                "confidence": t["confidence"],
+                "first_seen": t["first_seen"],
+                "last_seen": t["last_seen"],
+                "total_frames": t["total_frames"],
+                "total_distance_px": t["total_distance_px"],
+                "total_distance_meters": t.get("total_distance_m", 0.0) or round(t["total_distance_px"] * 0.065, 2),
+                "average_speed": t["average_speed"],
+                "current_velocity_kmh": vel_kmh,
+                "current_velocity_mps": vel_mps,
+                "current_acceleration_mps2": accel_mps2,
+                "current_world_pos": [latest_p["world_x"], latest_p["world_y"]] if latest_p and latest_p["world_x"] is not None else None,
+                "quality_flag": latest_p["quality_flag"] if latest_p else "VALID_HIGH_CONFIDENCE",
+                "heading": latest_p["heading"] if latest_p else 0.0,
+            }
+
+    def get_trajectory_points(self, track_id: int) -> List[Dict[str, Any]]:
+        """Retrieves all points for a single track."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT frame_index, timestamp, cx, cy, x1, y1, x2, y2, speed, heading,
+                       world_x, world_y, velocity_mps, velocity_kmh, accel_mps2, quality_flag, fine_grained_class
+                FROM heimdall_trajectory_points
+                WHERE track_id = ?
+                ORDER BY frame_index ASC
+            """, (track_id,))
+            rows = cursor.fetchall()
+            return [
+                {
+                    "frame_index": r["frame_index"],
+                    "timestamp": round(r["timestamp"], 3),
+                    "centroid": [r["cx"], r["cy"]],
+                    "bbox": [r["x1"], r["y1"], r["x2"], r["y2"]],
+                    "speed": r["speed"],
+                    "velocity_kmh": r["velocity_kmh"],
+                    "velocity_mps": r["velocity_mps"],
+                    "acceleration_mps2": r["accel_mps2"],
+                    "world_pos": [r["world_x"], r["world_y"]] if r["world_x"] is not None else None,
+                    "heading": r["heading"],
+                    "quality_flag": r["quality_flag"],
+                    "fine_grained_class": r["fine_grained_class"],
+                }
+                for r in rows
+            ]
+
     # ── Metric Exporters (CSV & JSON) ─────────────────────────────────────────
 
     def export_metric_csv_string(self, tracks: Optional[List[TrackTrajectory]] = None) -> str:
