@@ -1,0 +1,230 @@
+================================================================================
+                    FLYTBASE LEVEL 3 SUBMISSION WRITE-UP
+        PROJECT: HEIMDALLv2 — AGGREGATE TRAFFIC INTELLIGENCE & MACRO ANALYTICS
+================================================================================
+
+SUBMISSION METADATA
+--------------------------------------------------------------------------------
+• Project Name       : Heimdallv2
+• Submission Track   : Level 3 — Aggregate Traffic Intelligence & Visual Analytics Engine
+• GitHub Repository  : https://github.com/Hackmaass/Heimdallv2.git
+• Target Platform    : Aerial Drone Edge, FlytBase DiaB & Tactical Command Center
+• Primary Stack      : Python 3.10+, PyTorch, Ultralytics YOLOv8 (VisDrone), BoT-SORT,
+                       OpenCV Homography, FastAPI, SQLite, HTML5 Canvas / SVG Vectors,
+                       WebSockets, Vanilla CSS3 (Dark Aerospace Tactical Language)
+
+
+1. EXECUTIVE SUMMARY & OBJECTIVE
+--------------------------------------------------------------------------------
+While Level 1 established aerial detection and tracking, and Level 2 established
+object-level kinematics and fine-grained taxonomy, Level 3 elevates the platform
+into an enterprise-grade Aggregate Traffic Intelligence and Macro Analytics Engine.
+
+Level 3 solves the fundamental challenge of converting millions of continuous microscopic
+spatio-temporal coordinate points into actionable macro-level operational intelligence for
+traffic management centers, city planners, and autonomous drone operations.
+
+Key Innovations & Differentiators in Level 3:
+  1. 100% Real-World Derived Analytics: Zero synthetic or hardcoded random metrics. All
+     operational KPIs and visualizations are computed directly from the accumulated Level 2
+     persistent trajectories, homography ground coordinates, and temporal observation buffers.
+  2. Top 6 Operational KPIs: Real-time calculation of Total Flow Rate (veh/min), Space-Mean
+     Average Speed (km/h), Traffic Density (veh/km), Road Surface Occupancy (%), Active Queue
+     Length (meters), and Peak Flow Rate (veh/min).
+  3. 8 Specialized Visual Analytics Modules: High-density interactive visualization suite
+     covering time-binned modal flow curves, 12-movement vector intersection diagrams, lane
+     corridor passage volumes, modal split ratios, queue evolution time-series, Origin-Destination
+     (4x4) spatial matrices, fundamental flow-density diagrams, and spatial speed heatmaps.
+  4. Dual Rightmost Interface (Visual & Tabular): High-density tabbed sidebar providing both
+     visual graphical widgets (canvas area charts, SVG vector arrows, donuts) and structured
+     monospace tabular breakdowns (KPI summary, 12-movement breakdown, lane corridors, OD counts).
+  5. Interactive Adjustable Workspace Layout: IDE-like multi-panel horizontal and vertical drag
+     splitters with real-time ResizeObserver dynamic canvas scaling and persistent browser
+     localStorage memory.
+  6. Bi-Directional Cross-Filtering: Seamless cross-filtering where clicking any movement vector,
+     lane corridor, or OD cell filters the entire dashboard and highlights matching trajectory
+     trails on the 2D spatial canvas in real time.
+
+
+================================================================================
+2. CORE LEVEL 3 ARCHITECTURE & MATHEMATICAL FORMULATIONS
+================================================================================
+
+2.1 Top 6 Operational KPIs
+--------------------------------------------------------------------------------
+1. Total Traffic Flow Rate (Q):
+   - Defined as the total vehicle throughput per unit of time across the observed roadway.
+   - Formula:
+         Q = N_vehicles / Δt_min  [vehicles / minute]
+         Q_hourly = Q * 60        [vehicles / hour]
+   - Uses standardized physical time window normalization (Δt_min >= 1.0 min) to ensure
+     physically stable, realistic urban flow rates (e.g. 15–60 veh/min, or 900–3600 veh/hr).
+
+2. Space-Mean Average Speed (v_s):
+   - Calculated across all confirmed road user trajectories in the selected temporal window.
+   - Formula:
+         v_s = (1 / N) * Σ (v_i)  [km/h]
+   - Consumes true ground-plane homography calibrated speeds (km/h) derived from real ground
+     displacement Δs / Δt.
+
+3. Traffic Density (k):
+   - Measures spatial concentration of vehicles per kilometer of roadway corridor.
+   - Formula:
+         k = N_active / L_road_km  [vehicles / kilometer]
+   - Computed using active visible vehicle tracks over the calibrated 150-meter roadway footprint.
+
+4. Road Surface Occupancy (ρ):
+   - Ratio of total physical ground area occupied by vehicle footprints relative to available
+     roadway surface area.
+   - Category-Specific Footprints:
+         - Heavy Goods (HGV / Buses) : 35.0 m²
+         - Passenger Cars / LGV      : 12.5 m²
+         - Motorcycles / Scooters    : 3.5 m²
+         - Pedestrians / Persons     : 1.5 m²
+   - Formula:
+         ρ = (Σ Footprint_i / Road_Area_m²) * 100%  [% surface occupied]
+
+5. Active Queue Length (L_q):
+   - Tracks the physical length of queued vehicles stopped or crawling at red signals / congestion.
+   - Qualification Threshold: Ground speed v < 6.0 km/h with persistent spatial presence.
+   - Formula:
+         L_q = N_queued * 6.5 meters  [meters]
+         (Accounting for 4.5m average vehicle length + 2.0m inter-vehicle safety gap).
+
+6. Peak Flow Rate (Q_peak):
+   - Identifies the maximum instantaneous vehicle surge recorded across sliding 10s and 30s bins.
+   - Annotated directly on the flow timeline curve as an operational peak indicator.
+
+
+2.2 The 8 Specialized Visual Analytics Modules
+--------------------------------------------------------------------------------
+Module 1: Traffic Flow Timeline (Vehicles / Minute)
+  • Dynamic time-binned area chart tracking flow volume over the observation session.
+  • Stacked modal category breakdown: Cars (Cyan), Motorcycles (Lime), Buses (Purple),
+    Heavy Trucks (Crimson), and Other (Slate).
+  • Automatic bin width scaling (5s, 10s, 30s) with glowing peak point annotation.
+
+Module 2: 12-Directional Intersection Movement Flow
+  • Visualizes all 12 standard intersection movements in an interactive SVG geometry:
+        Through Movements : N → S, S → N, E → W, W → E
+        Right Turns       : N → W, S → E, E → N, W → S
+        Left Turns        : N → E, S → W, E → S, W → N
+  • Directional vector Bézier paths with glowing arrowheads (marker-end) and stroke widths
+    proportional to observed volume counts.
+  • Interactive hover tooltips and click-to-filter cross-filtering.
+
+Module 3: Lane & Corridor Passage Volume Breakdown
+  • Classifies trajectories into directional approach corridors:
+        - LANE 01: Eastbound North Corridor
+        - LANE 02: Westbound South Corridor
+        - LANE 03: Southbound West Corridor
+        - LANE 04: Northbound East Corridor
+  • Displays total passage volume, flow rate (vpm), and modal split progress bars.
+
+Module 4: Modal Split & Vehicle Class Ratio
+  • Multi-class donut chart and tabular ratio breakdown computed from the 13-class taxonomy.
+  • Displays volume count and percentage share for Cars, Motorcycles, Buses, Trucks, and VRUs.
+
+Module 5: Queue Evolution & Dissipation Time-Series
+  • Continuous curve tracking queue length in meters over time.
+  • Measures queuing build-up cycles during red signal intervals and rapid dissipation during
+    green signal phases.
+
+Module 6: Origin-Destination (OD) 4x4 Spatial Matrix
+  • Complete 4x4 spatial passage matrix mapping Origin approach to Destination exit (N, S, E, W).
+  • Color-intensity background heatmap with diagonal through-flow suppression and cell click
+    filtering.
+
+Module 7: Flow-Density Fundamental Diagram (Greenshields Traffic Theory)
+  • Empirical scatter plot mapping observed flow rate against spatial traffic density Q(k).
+  • Classifies current traffic regime into three operational states:
+        - Free Flow State  (Green)  : Density < 30 veh/km, High speed, unobstructed travel.
+        - High Flow State  (Blue)   : Density 30–65 veh/km, Maximum capacity throughput.
+        - Congested State  (Red)    : Density > 65 veh/km, Breakdown in speed, queue buildup.
+
+Module 8: Spatial Speed Kinematics Heatmap
+  • Real-time 2D spatial canvas layer mapping trajectory speed gradients directly over aerial footage.
+  • Color scale: Green (> 40 km/h) -> Yellow (20–40 km/h) -> Orange (6–20 km/h) -> Crimson (< 6 km/h).
+
+
+================================================================================
+3. USER INTERFACE & WORKSPACE ARCHITECTURE
+================================================================================
+
+3.1 Rightmost Vertical Sidebar (Visual & Tabular Tabs)
+--------------------------------------------------------------------------------
+To keep the primary aerial gimbal payload video feed and 2D spatial canvas unobstructed,
+the analytics engine is embedded into the rightmost vertical sidebar with three modes:
+  1. `[TELEMETRY]`: Live drone flight telemetry, active road users by class, and selected track inspector.
+  2. `[L3 VISUAL]`: Time range filter chips (LIVE, 5M, 10M, 30M, ALL), Top 6 KPI strip grid,
+     Flow Timeline Canvas, 12-Movement SVG vector diagram, Lane Volume bars, Modal Donut,
+     Queue Evolution Canvas, OD Matrix heatmap, and Flow-Density scatter canvas.
+  3. `[L3 TABULAR]`: Structured high-density monospace tables for:
+     - Operational KPIs Summary (Metric, Value, Unit, Status Badge)
+     - 12 Movement Directional Counts (Corridor, Volume, Share %)
+     - Lane Corridor Performance (Lane ID, Volume, Flow Rate, Modal Split)
+     - Vehicle Taxonomy Distribution (Class, Count, Share %)
+     - Origin-Destination Raw Count Matrix
+
+3.2 Full-Width Persistent Track Registry Table
+--------------------------------------------------------------------------------
+The bottom panel hosts the full-width Live Persistent Track Registry & Kinematics Log:
+  • Columns: TRACK ID, CLASS, SUBCLASS, CONFIDENCE, VELOCITY (km/h), ACCEL (m/s²), HEADING, DURATION, QUALITY.
+  • Displays real calibrated SI units (km/h and m/s²) without truncation or overflow.
+
+3.3 Interactive Resizable Split Layout (IDE-like Drag Handles)
+--------------------------------------------------------------------------------
+• Horizontal Resizer 1 (`#gutterCol1`): Drag to adjust width ratio between Aerial Video and 2D Map.
+• Horizontal Resizer 2 (`#gutterCol2`): Drag to adjust horizontal width of the Right Analytics Sidebar (260px to 850px).
+• Vertical Resizer (`#gutterRow`): Drag to adjust height of the bottom Persistent Track Registry Table (70px to 550px).
+• Real-time `ResizeObserver` automatically redraws and fits the 2D trajectory canvas during dragging.
+• Browser `localStorage` persistence saves customized layout dimensions across page reloads.
+
+
+================================================================================
+4. COMPONENT FILE STRUCTURE
+================================================================================
+Backend:
+  ├── backend/analytics/level3_engine.py      -> Level 3 Aggregate Engine (KPIs, Flow, OD, Queue, Regimes)
+  ├── backend/api/routes.py                   -> Level 3 REST API endpoint (GET /api/analytics/level3)
+  ├── backend/api/schemas.py                  -> Level 3 Pydantic validation schemas
+  ├── backend/trajectories/engine.py          -> Microscopic trajectory tracking & kinematics provider
+  ├── backend/trajectories/storage.py         -> SQLite persistent storage & exporter
+  └── backend/main.py                         -> FastAPI server, WebSocket hub, /favicon.ico route
+
+Frontend:
+  ├── frontend/index.html                     -> Command Center UI, Level Switcher, Resizable Layout & Sidebar Tabs
+  ├── frontend/style.css                      -> Resizable Splitters, 2x3 KPI Grid, OD Matrix, Tabular Tables
+  ├── frontend/app.js                         -> Sidebar Tab Switcher, Drag Resizer, Canvas & SVG Chart Renderers
+  └── frontend/map.js                         -> 2D Trajectory Map, Speed Heatmap, ResizeObserver Handler
+
+Test Suite:
+  ├── tests/test_level3_analytics.py          -> 5 comprehensive test classes for Level 3 mathematical accuracy
+  ├── tests/test_kinematics.py                -> Velocity, acceleration, and heading unit tests
+  ├── tests/test_homography.py                -> Homography transformation and ray projection tests
+  ├── tests/test_fine_grained.py              -> Second-stage fine-grained classification tests
+  ├── tests/test_srt_parser.py                -> DJI SRT subtitle telemetry parser tests
+  ├── tests/test_speed.py                     -> SI unit speed estimator tests
+  └── tests/test_api.py                       -> REST API endpoints and schema validation tests
+
+
+================================================================================
+5. VERIFICATION & TEST RESULTS
+================================================================================
+• Automated Test Suite:
+    Command: `.\venv\Scripts\python.exe -m pytest tests/`
+    Results: 30 Passed, 0 Failed (100% Pass Rate in ~5.3s)
+
+• Verification Matrix:
+    - Level 3 Macro KPIs         : Verified Total Flow (vpm), Space-Mean Speed (km/h), Density (vpk), Occupancy (%).
+    - 12 Movement Vectors        : Verified origin-destination classification and SVG Bézier arrow path generation.
+    - Lane Volumes & Modal Split : Verified corridor volume aggregation and 13-class percentage distribution.
+    - Queue Evolution Curve      : Verified detection of queued vehicles (< 6 km/h) and metric queue length.
+    - OD 4x4 Matrix              : Verified spatial flow mapping and cross-filtering consistency.
+    - Flow-Density Fundamental   : Verified classification into Free Flow, High Flow, and Congested states.
+    - UI Resizability            : Verified horizontal and vertical splitter drag handles and localStorage state memory.
+    - Stability & Clean Logs     : Verified graceful WebSocket reconnection, favicon 204 response, and zero runaway polling.
+
+================================================================================
+                                END OF WRITE-UP
+================================================================================
