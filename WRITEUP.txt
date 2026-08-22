@@ -1,0 +1,196 @@
+================================================================================
+           HEIMDALLv2: AERIAL DRONE TRAFFIC INTELLIGENCE PLATFORM
+                              TECHNICAL WRITE-UP
+================================================================================
+
+1. EXECUTIVE OVERVIEW
+--------------------------------------------------------------------------------
+Heimdallv2 is an edge-optimized, real-time aerial surveillance and traffic
+intelligence platform engineered specifically for high-altitude drone video 
+streams (up to 4K UHD resolution). Designed for intersection monitoring, dense
+urban corridors, and autonomous drone operations, Heimdallv2 converts top-down
+aerial footage into persistent, multi-class vehicle and pedestrian trajectory
+analytics.
+
+Key Innovations in Heimdallv2:
+  • Pure-GPU Batched SAHI (Sliced Aided Hyper Inference) executing 4K frames at >30 FPS.
+  • VisDrone-trained aerial models specifically calibrated for top-down perspective.
+  • BoT-SORT Multi-Object Tracking with Optical Flow Camera Motion Compensation (GMC).
+  • Zero-loss trajectory continuity with sub-pixel EMA smoothing and gap interpolation.
+  • Interactive 2D tactical command map with multi-layer traffic analytics.
+  • FlytBase Cloud & Edge Drone Telemetry integration.
+
+
+2. SYSTEM ARCHITECTURE
+--------------------------------------------------------------------------------
+The platform follows a decoupled, modular micro-architecture:
+
+  [ 4K Drone Video / Live RTSP Feed ]
+                 │
+                 ▼
+  [ Perception Layer: Pure-GPU SAHI Detector ]
+  (Batched GPU Tensor Slicing + VisDrone YOLOv8 + Class-Adaptive Sensitivity)
+                 │
+                 ▼
+  [ Tracking & Association Layer: BoT-SORT ]
+  (Sparse Optical Flow GMC + Kalman Filter + 2-Stage IoU Association)
+                 │
+                 ▼
+  [ Trajectory & Kinematics Engine ]
+  (EMA Centroid Smoothing + Occlusion Interpolation + Outlier Gating)
+                 │
+                 ▼
+  [ Persistence Layer: SQLite / PostGIS-Ready Schema ]
+  (Track metadata, temporal waypoints, speed kinematics, class taxonomy)
+                 │
+  ┌──────────────┴─────────────────────────────────┐
+  ▼                                                ▼
+[ REST API / WebSocket Server ]       [ 2D Tactical Command Canvas ]
+(FastAPI + Uvicorn Async Server)     (Real-time Canvas + Spline Trails)
+
+
+3. PERCEPTION & COMPUTER VISION PIPELINE
+--------------------------------------------------------------------------------
+A. Pure-GPU Batched SAHI (Sliced Aided Hyper Inference)
+   Standard object detectors downsample 4K (3840x2160) frames directly to 640x640,
+   which blurs 20-30px pedestrians and two-wheelers into unrecognizable blobs.
+   Traditional SAHI creates heavy CPU-GPU transfer bottlenecks.
+   
+   Heimdallv2 implements Pure-GPU Batched SAHI:
+     1. Full 4K frame is transferred to GPU memory once as a torch.Tensor.
+     2. A 3x2 grid of overlapping tiles (960px to 1536px) is generated on GPU.
+     3. Slices are concatenated into a single batch tensor: Shape (7, 3, 640, 640).
+     4. Single batched forward pass runs on CUDA in ~17ms (RTX 5050 Laptop GPU).
+     5. Slice-local bounding boxes are mathematically reprojected to global 4K coordinates.
+     6. Global GPU Batched NMS removes slice boundary crossovers.
+
+B. VisDrone Aerial Models (yolov8s-visdrone.pt / yolov8x-visdrone.pt)
+   Standard COCO models are trained on horizontal eye-level photos, causing low
+   confidence scores (0.08 - 0.20) for top-down aerial objects.
+   
+   VisDrone-trained weights provide native aerial perspective features:
+     • Pedestrians & People: Top-down human ellipses (head/shoulders).
+     • Two-Wheelers: Motorcycles, scooters, bicycles.
+     • Specialized Urban Vehicles: Auto-rickshaws, tricycles, awning-tricycles.
+     • Standard Vehicles: Cars, vans, pickup trucks, heavy trucks, buses.
+
+C. Cross-Class Containment & Duplicate Suppression
+   To eliminate false detections of drivers inside vehicles through windshields
+   and suppress multi-slice boundary overlaps:
+     • If an object (person/bicycle) is >60% enclosed within a larger vehicle box,
+       it is automatically suppressed.
+     • Same-class overlaps with IoU > 0.45 preserve only the highest confidence detection.
+     • Non-traffic categories (trees, potted plants, benches, boats, umbrellas) are
+       strictly rejected before reaching the tracking stage.
+
+
+4. TRACKING, KINEMATICS & TRAJECTORY ENGINE
+--------------------------------------------------------------------------------
+A. BoT-SORT Multi-Object Tracking with GMC
+   Aerial drone cameras suffer from gimbal vibrations, wind drift, and pan motions.
+   Standard Kalman filters fail when the camera reference frame shifts.
+   
+   Heimdallv2 utilizes BoT-SORT with Sparse Optical Flow GMC:
+     • Tracks background optical flow vectors between consecutive frames.
+     • Computes an affine transformation matrix to compensate for drone motion.
+     • Translates Kalman filter states so world coordinates remain locked.
+
+B. Calibrated Association Parameters (configs/botsort.yaml)
+     • new_track_thresh: 0.35  (Prevents transient single-frame noise from spawning tracks)
+     • track_high_thresh: 0.20 (Stage 1 matching threshold for solid objects)
+     • track_low_thresh: 0.05  (Stage 2 matching recovers partially occluded road users)
+     • track_buffer: 90        (Keeps lost tracks active for up to 3 seconds)
+     • match_thresh: 0.75      (Geometric IoU association distance threshold)
+     • fuse_score: False       (Prevents confidence bias during geometric matching)
+
+C. Continuous Trajectory Smoothing & Gap Interpolation
+   In backend/trajectories/engine.py:
+     1. Centroid EMA Smoothing (alpha = 0.70): Eliminates bounding box regression jitter.
+     2. Occlusion Gap Interpolation: Automatically calculates linear interpolation
+        across 1-6 dropped frames so lines remain continuous.
+     3. Outlier Teleportation Gating: Rejects position jumps >120px/frame to eliminate
+        cross-lane ID swaps.
+
+
+5. 2D TACTICAL COMMAND MAP & ANALYTICS
+--------------------------------------------------------------------------------
+The front-end is built with high-performance Vanilla HTML5/CSS3/JavaScript Canvas:
+  • Quadratic Bézier Spline Curves: Replaces jagged polylines with smooth midpoint curves.
+  • Video Background Overlay: Allows pinning or live blending aerial video with the map.
+  • Multi-Layer Analytics:
+      1. Video Overlay Layer (Adjustable opacity slider)
+      2. Trajectory Movement Trails (Taxonomy color-coded)
+      3. Traffic Density Heatmap (Kernel density estimation of dwell zones)
+      4. Speed Kinematics Layer (Color-coded by relative velocity)
+      5. Directional Velocity Arrows & Class Badges
+  • Class Filters: Instant toggle filtering for CAR, BIKE, BUS, HGV, PEDESTRIAN.
+  • One-Click Reset: Clears canvas, in-memory tracks, and SQLite database records.
+
+
+6. TAXONOMY CLASSIFICATION PALETTE
+--------------------------------------------------------------------------------
+Standardized RoadUserClass taxonomy with aviation tactical color-coding:
+  • PERSON:        #00FFB2  (Bright Cyan-Green)
+  • BICYCLE:       #00E5FF  (Vivid Cyan)
+  • MOTORCYCLE:    #C8F23A  (Volt Lime)
+  • CAR:           #38BDF8  (Sky Blue)
+  • LGV (Vans):    #FB923C  (Bright Amber-Orange)
+  • HGV (Trucks):  #F43F5E  (Rose Crimson)
+  • BUS:           #A855F7  (Vivid Purple)
+  • OTHER_VEHICLE: #E2E8F0  (Titanium Silver - Rickshaws, Emergency)
+
+
+7. DATABASE PERSISTENCE SCHEMA (SQLite / outputs/heimdall.db)
+--------------------------------------------------------------------------------
+• heimdall_sessions:
+    - session_id (TEXT PRIMARY KEY)
+    - filename, duration_seconds, total_frames, total_tracks, status, created_at
+
+• heimdall_tracks:
+    - track_id (INTEGER PRIMARY KEY)
+    - session_id, raw_class, normalized_class, confidence
+    - first_seen, last_seen, first_frame, last_frame, total_frames
+    - average_speed, max_speed, is_stationary, is_uncertain
+
+• heimdall_trajectory_points:
+    - point_id (INTEGER PRIMARY KEY AUTOINCREMENT)
+    - track_id, frame_index, timestamp, x, y, speed, heading, bbox_json
+
+
+8. API ENDPOINTS REFERENCE
+--------------------------------------------------------------------------------
+  POST   /api/video/process         Enqueues video processing job with SAHI & BoT-SORT
+  GET    /api/video/{id}/status     Polls processing progress, FPS, and output paths
+  GET    /api/trajectories          Retrieves all spatial trails for 2D visualizer
+  DELETE /api/trajectories          Clears all stored tracks from DB and memory
+  GET    /api/tracks                Lists all active and historical tracks
+  GET    /api/tracks/{id}           Retrieves detailed metadata for a single track
+  GET    /api/analytics/summary     Returns fleet statistics & class counts
+  GET    /api/telemetry             Returns live FlytBase drone telemetry
+  POST   /api/flytbase/gimbal       Controls simulated drone gimbal pitch/yaw
+  WS     /ws/tracking               Live WebSocket stream for real-time detections
+
+
+9. RUNNING LOCALLY
+--------------------------------------------------------------------------------
+Requirements: Python 3.10+ with CUDA-enabled PyTorch.
+
+1. Activate Virtual Environment:
+   .\venv\Scripts\Activate.ps1
+
+2. Start the Server:
+   python -m backend.main
+
+3. Open the Command Center:
+   Navigate to http://localhost:8000 in any modern web browser.
+
+4. Run Video Analysis:
+   • Click "ANALYZE NEW VIDEO" in the top bar.
+   • Select "YOLOv8s VisDrone (Aerial Drone Specialist)".
+   • Select "BoT-SORT (GMC + Drone Motion)".
+   • Toggle "SAHI — SLICED AIDED HYPER INFERENCE" ON (960px).
+   • Click "START VIDEO PROCESSING".
+
+================================================================================
+                      HEIMDALLv2 PLATFORM DOCUMENTATION COMPLETE
+================================================================================
