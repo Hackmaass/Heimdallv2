@@ -57,6 +57,11 @@ if os.path.exists(frontend_dir):
             return FileResponse(index_file)
         return {"status": "Heimdallv2 Backend Online. Frontend static files loading..."}
 
+    @app.get("/favicon.ico")
+    async def serve_favicon():
+        from fastapi.responses import Response
+        return Response(status_code=204)
+
 
 if __name__ == "__main__":
     host = os.getenv("HOST", "0.0.0.0")

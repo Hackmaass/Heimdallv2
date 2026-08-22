@@ -35,31 +35,53 @@ document.addEventListener("DOMContentLoaded", () => {
   refreshLevel3Analytics();
 });
 
+let wsReconnectTimeout = null;
+
 function connectWebSocket() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  if (wsReconnectTimeout) {
+    clearTimeout(wsReconnectTimeout);
+    wsReconnectTimeout = null;
+  }
+
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${protocol}//${window.location.host}/ws/tracking`;
 
-  ws = new WebSocket(wsUrl);
+  try {
+    ws = new WebSocket(wsUrl);
 
-  ws.onopen = () => {
-    document.getElementById("wsStatusDot").style.background = "#00FFB2";
-    document.getElementById("wsStatusText").textContent = "CONNECTED (REAL-TIME)";
-  };
+    ws.onopen = () => {
+      document.getElementById("wsStatusDot").style.background = "#00FFB2";
+      document.getElementById("wsStatusText").textContent = "CONNECTED (REAL-TIME)";
+    };
 
-  ws.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      handleLiveFrame(data);
-    } catch (e) {
-      console.error("WS Parse error:", e);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        handleLiveFrame(data);
+      } catch (e) {
+        console.error("WS Parse error:", e);
+      }
+    };
+
+    ws.onerror = () => {
+      // Quiet handler during server restarts
+    };
+
+    ws.onclose = () => {
+      document.getElementById("wsStatusDot").style.background = "#F43F5E";
+      document.getElementById("wsStatusText").textContent = "OFFLINE (RECONNECTING)";
+      if (!wsReconnectTimeout) {
+        wsReconnectTimeout = setTimeout(connectWebSocket, 3000);
+      }
+    };
+  } catch (e) {
+    if (!wsReconnectTimeout) {
+      wsReconnectTimeout = setTimeout(connectWebSocket, 3000);
     }
-  };
-
-  ws.onclose = () => {
-    document.getElementById("wsStatusDot").style.background = "#F43F5E";
-    document.getElementById("wsStatusText").textContent = "OFFLINE (RECONNECTING)";
-    setTimeout(connectWebSocket, 2000);
-  };
+  }
 }
 
 function handleLiveFrame(data) {
@@ -683,67 +705,71 @@ function pollJobStatus(jobId) {
   pollingInterval = setInterval(async () => {
     try {
       const res = await fetch(`/api/video/${jobId}/status`);
+      if (!res.ok) {
+        if (res.status === 404 || res.status >= 400) {
+          clearInterval(pollingInterval);
+          pollingInterval = null;
+          console.log(`Polling stopped for job ${jobId} (HTTP ${res.status}).`);
+          return;
+        }
+        return;
+      }
       const data = await res.json();
 
       document.getElementById("progressPercent").textContent = `${data.progress_percent}%`;
       document.getElementById("progressBarFill").style.width = `${data.progress_percent}%`;
       document.getElementById("progressStatusText").textContent = `STATUS: ${data.status} | FPS: ${data.fps_processing} | FRAME: ${data.current_frame}/${data.total_frames} | ACTIVE: ${data.active_tracks} | UNIQUE: ${data.total_unique_tracks}`;
 
-      if (data.status === "COMPLETED") {
+      if (data.status === "COMPLETED" || data.status === "FAILED" || data.status === "ERROR") {
         clearInterval(pollingInterval);
-        document.getElementById("progressStatusText").textContent = `✓ COMPLETED: ${data.total_unique_tracks} Road Users Detected across ${data.current_frame} frames!`;
+        pollingInterval = null;
 
-        // Setup output download buttons
-        if (data.output_files) {
-          const dlVideo = document.getElementById("downloadAnnotatedVideo");
-          const dlCsv = document.getElementById("downloadTracksCsv");
-          const dlTraj = document.getElementById("downloadTrajJson");
-          const dlSummary = document.getElementById("downloadSummaryJson");
+        if (data.status === "COMPLETED") {
+          document.getElementById("progressStatusText").textContent = `✓ COMPLETED: ${data.total_unique_tracks} Road Users Detected across ${data.current_frame} frames!`;
 
-          if (data.output_files.annotated_video) {
-            const videoSrc = `/api/outputs/${data.output_files.annotated_video.split(/[\\/]/).pop()}`;
-            dlVideo.href = videoSrc;
-            dlVideo.style.display = "flex";
-            document.getElementById("annotatedVideoPlayer").src = videoSrc;
-          } else {
-            dlVideo.style.display = "none";
+          // Setup output download buttons
+          if (data.output_files) {
+            const dlVideo = document.getElementById("downloadAnnotatedVideo");
+            const dlCsv = document.getElementById("downloadTracksCsv");
+            const dlTraj = document.getElementById("downloadTrajJson");
+            const dlSummary = document.getElementById("downloadSummaryJson");
+
+            if (data.output_files.annotated_video) {
+              const videoSrc = `/api/outputs/${data.output_files.annotated_video.split(/[\\/]/).pop()}`;
+              dlVideo.href = videoSrc;
+              dlVideo.style.display = "flex";
+              document.getElementById("annotatedVideoPlayer").src = videoSrc;
+            } else {
+              dlVideo.style.display = "none";
+            }
+
+            if (data.output_files.tracks_csv) {
+              dlCsv.href = `/api/outputs/${data.output_files.tracks_csv.split(/[\\/]/).pop()}`;
+            }
+            if (data.output_files.trajectories_json) {
+              dlTraj.href = `/api/outputs/${data.output_files.trajectories_json.split(/[\\/]/).pop()}`;
+            }
+            if (data.output_files.summary_json) {
+              dlSummary.href = `/api/outputs/${data.output_files.summary_json.split(/[\\/]/).pop()}`;
+            }
           }
 
-          if (data.output_files.tracks_csv) {
-            dlCsv.href = `/api/outputs/${data.output_files.tracks_csv.split(/[\\/]/).pop()}`;
-          }
-          if (data.output_files.trajectories_json) {
-            dlTraj.href = `/api/outputs/${data.output_files.trajectories_json.split(/[\\/]/).pop()}`;
-          }
-          if (data.output_files.summary_json) {
-            dlSummary.href = `/api/outputs/${data.output_files.summary_json.split(/[\\/]/).pop()}`;
-          }
+          document.getElementById("modalCompleteActions").style.display = "block";
+          loadSessionTrajectories();
+        } else {
+          document.getElementById("progressStatusText").textContent = `✕ FAILED: Processing job terminated (${data.status})`;
         }
 
-        document.getElementById("modalCompleteActions").style.display = "block";
-
-        // Load the freshly completed full trajectories onto the 2D canvas & table
-        loadSessionTrajectories();
-
-        // Reset start button
         const btn = document.getElementById("btnStartProcessing");
-        btn.disabled = false;
-        btn.textContent = "Launch Pipeline";
-
-      } else if (data.status === "FAILED") {
-        clearInterval(pollingInterval);
-        document.getElementById("progressStatusText").textContent = `FAILED: ${data.error_message}`;
-        alert("Pipeline failed: " + data.error_message);
-        document.getElementById("modalForm").style.display = "block";
-        document.getElementById("modalProgress").style.display = "none";
-        const btn = document.getElementById("btnStartProcessing");
-        btn.disabled = false;
-        btn.textContent = "Launch Pipeline";
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Launch Pipeline";
+        }
       }
     } catch (e) {
-      console.error("Poll status error:", e);
+      // Quiet handler for offline server restarts
     }
-  }, 400);
+  }, 1000);
 }
 
 async function loadSessionTrajectories() {
