@@ -419,6 +419,10 @@ function initEventListeners() {
   };
 
   toggleLayerBtn("layerToggleVideo", "video");
+  toggleLayerBtn("layerToggleRoads", "roads");
+  toggleLayerBtn("layerToggleLanes", "lanes");
+  toggleLayerBtn("layerToggleDesire", "desire");
+  toggleLayerBtn("layerToggleQueues", "queues");
   toggleLayerBtn("layerToggleTrails", "trails");
   toggleLayerBtn("layerToggleHeatmap", "heatmap");
   toggleLayerBtn("layerToggleSpeed", "speed");
@@ -2082,6 +2086,11 @@ async function refreshLevel4Analytics() {
 
 function renderLevel4SpatialUI(data) {
   if (!data) return;
+
+  // Update visualizer canvas spatial layers
+  if (visualizer) {
+    visualizer.setLevel4Data(data);
+  }
 
   // 1. Update Spatial Overview Cards
   const kpis = data.summary_kpis || {};

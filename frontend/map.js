@@ -28,6 +28,13 @@ class TrajectoryMapVisualizer {
     this.layerArrows = true;
     this.showLabels = true;
 
+    // Level 4 Spatial Grounding Layers
+    this.layerRoads = true;
+    this.layerLanes = true;
+    this.layerDesire = true;
+    this.layerQueues = true;
+    this.level4Data = null;
+
     // Video Background Frame (for direct overlay)
     this.bgImage = null;
     this.bgWidth = 640;
@@ -171,6 +178,10 @@ class TrajectoryMapVisualizer {
 
   toggleLayer(layerName, enabled) {
     if (layerName === "video") this.layerVideoOverlay = enabled;
+    else if (layerName === "roads") this.layerRoads = enabled;
+    else if (layerName === "lanes") this.layerLanes = enabled;
+    else if (layerName === "desire") this.layerDesire = enabled;
+    else if (layerName === "queues") this.layerQueues = enabled;
     else if (layerName === "trails") this.layerTrails = enabled;
     else if (layerName === "heatmap") this.layerHeatmap = enabled;
     else if (layerName === "speed") this.layerSpeed = enabled;
@@ -410,6 +421,21 @@ class TrajectoryMapVisualizer {
       ctx.stroke();
     }
 
+    // ── LEVEL 4 SPATIAL: Road Network Corridors & Lanes ──────────────────────
+    if (this.layerRoads || this.layerLanes) {
+      this._renderRoadNetworkAndLanes(ctx);
+    }
+
+    // ── LEVEL 4 SPATIAL: True Geometric Desire Lines ─────────────────────────
+    if (this.layerDesire) {
+      this._renderDesireCurves(ctx);
+    }
+
+    // ── LEVEL 4 SPATIAL: Physical Carriageway Queue Bars ─────────────────────
+    if (this.layerQueues) {
+      this._renderSpatialQueueBars(ctx);
+    }
+
     // ── LAYER 2: Spatial Speed & Traffic Density Heatmap ─────────────────────
     if (this.layerHeatmap) {
       ctx.save();
@@ -643,6 +669,238 @@ class TrajectoryMapVisualizer {
     }
   }
 
+  setLevel4Data(data) {
+    this.level4Data = data;
+    this.render();
+  }
+
+  _renderRoadNetworkAndLanes(ctx) {
+    const w = this.bgWidth || 1920;
+    const h = this.bgHeight || 1080;
+    const cx = w * 0.5;
+    const cy = h * 0.52;
+    const jw = w * 0.22;
+    const jh = h * 0.24;
+
+    // 1. Central Conflict Area (Intersection Polygon)
+    if (this.layerRoads) {
+      ctx.strokeStyle = "rgba(0, 229, 255, 0.6)";
+      ctx.lineWidth = 2 / this.scale;
+      ctx.fillStyle = "rgba(0, 229, 255, 0.05)";
+      ctx.setLineDash([6 / this.scale, 4 / this.scale]);
+      ctx.strokeRect(cx - jw/2, cy - jh/2, jw, jh);
+      ctx.fillRect(cx - jw/2, cy - jh/2, jw, jh);
+      ctx.setLineDash([]);
+
+      // Junction Label
+      const fs = Math.max(9, Math.round(11 / this.scale));
+      ctx.font = `bold ${fs}px monospace`;
+      ctx.fillStyle = "rgba(0, 229, 255, 0.8)";
+      ctx.fillText("INT_01: JUNCTION NODE", cx - jw/2 + 6 / this.scale, cy - jh/2 + 14 / this.scale);
+
+      // 4 Approach Corridor Envelopes (North, South, East, West)
+      ctx.fillStyle = "rgba(56, 189, 248, 0.04)";
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.25)";
+      ctx.lineWidth = 1.5 / this.scale;
+
+      // North Corridor
+      ctx.fillRect(cx - jw/2, 0, jw, cy - jh/2);
+      ctx.strokeRect(cx - jw/2, 0, jw, cy - jh/2);
+
+      // South Corridor
+      ctx.fillRect(cx - jw/2, cy + jh/2, jw, h - (cy + jh/2));
+      ctx.strokeRect(cx - jw/2, cy + jh/2, jw, h - (cy + jh/2));
+
+      // East Corridor
+      ctx.fillRect(cx + jw/2, cy - jh/2, w - (cx + jw/2), jh);
+      ctx.strokeRect(cx + jw/2, cy - jh/2, w - (cx + jw/2), jh);
+
+      // West Corridor
+      ctx.fillRect(0, cy - jh/2, cx - jw/2, jh);
+      ctx.strokeRect(0, cy - jh/2, cx - jw/2, jh);
+
+      // Stop Lines (Solid White / Lime)
+      ctx.strokeStyle = "rgba(200, 242, 58, 0.8)";
+      ctx.lineWidth = 3 / this.scale;
+      // North Stop line
+      ctx.beginPath(); ctx.moveTo(cx - jw/2, cy - jh/2); ctx.lineTo(cx + jw/2, cy - jh/2); ctx.stroke();
+      // South Stop line
+      ctx.beginPath(); ctx.moveTo(cx - jw/2, cy + jh/2); ctx.lineTo(cx + jw/2, cy + jh/2); ctx.stroke();
+      // East Stop line
+      ctx.beginPath(); ctx.moveTo(cx + jw/2, cy - jh/2); ctx.lineTo(cx + jw/2, cy + jh/2); ctx.stroke();
+      // West Stop line
+      ctx.beginPath(); ctx.moveTo(cx - jw/2, cy - jh/2); ctx.lineTo(cx - jw/2, cy + jh/2); ctx.stroke();
+    }
+
+    // 2. Physical Lanes & Dividers
+    if (this.layerLanes) {
+      ctx.strokeStyle = "rgba(200, 242, 58, 0.5)";
+      ctx.lineWidth = 1.5 / this.scale;
+      ctx.setLineDash([8 / this.scale, 6 / this.scale]);
+
+      // North Lane Divider
+      ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, cy - jh/2); ctx.stroke();
+      // South Lane Divider
+      ctx.beginPath(); ctx.moveTo(cx, cy + jh/2); ctx.lineTo(cx, h); ctx.stroke();
+      // East Lane Divider
+      ctx.beginPath(); ctx.moveTo(cx + jw/2, cy); ctx.lineTo(w, cy); ctx.stroke();
+      // West Lane Divider
+      ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(cx - jw/2, cy); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Lane Badges
+      const badgeFs = Math.max(8, Math.round(9 / this.scale));
+      ctx.font = `bold ${badgeFs}px monospace`;
+
+      const drawLaneBadge = (text, lx, ly) => {
+        ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+        ctx.fillRect(lx - 16 / this.scale, ly - 7 / this.scale, 32 / this.scale, 14 / this.scale);
+        ctx.strokeStyle = "rgba(200, 242, 58, 0.6)";
+        ctx.lineWidth = 1 / this.scale;
+        ctx.strokeRect(lx - 16 / this.scale, ly - 7 / this.scale, 32 / this.scale, 14 / this.scale);
+        ctx.fillStyle = "#C8F23A";
+        ctx.textAlign = "center";
+        ctx.fillText(text, lx, ly + 3 / this.scale);
+        ctx.textAlign = "start";
+      };
+
+      drawLaneBadge("N-L1", cx - jw/4, cy - jh/2 - 20 / this.scale);
+      drawLaneBadge("N-L2", cx + jw/4, cy - jh/2 - 20 / this.scale);
+      drawLaneBadge("S-L1", cx + jw/4, cy + jh/2 + 20 / this.scale);
+      drawLaneBadge("S-L2", cx - jw/4, cy + jh/2 + 20 / this.scale);
+      drawLaneBadge("E-L1", cx + jw/2 + 30 / this.scale, cy - jh/4);
+      drawLaneBadge("E-L2", cx + jw/2 + 30 / this.scale, cy + jh/4);
+      drawLaneBadge("W-L1", cx - jw/2 - 30 / this.scale, cy + jh/4);
+      drawLaneBadge("W-L2", cx - jw/2 - 30 / this.scale, cy - jh/4);
+    }
+  }
+
+  _renderDesireCurves(ctx) {
+    const w = this.bgWidth || 1920;
+    const h = this.bgHeight || 1080;
+    const cx = w * 0.5;
+    const cy = h * 0.52;
+    const jw = w * 0.22;
+    const jh = h * 0.24;
+
+    const desireLines = (this.level4Data && this.level4Data.desire_lines) ? this.level4Data.desire_lines : [];
+    
+    // Default 12 Corridors
+    const corridors = [
+      // North approaches
+      { id: "N_S", sx: cx - jw/4, sy: cy - jh/2, ex: cx - jw/4, ey: cy + jh/2, cpx: cx - jw/4, cpy: cy, vol: 24 },
+      { id: "N_W", sx: cx - jw/4, sy: cy - jh/2, ex: cx - jw/2, ey: cy - jh/4, cpx: cx - jw/3, cpy: cy - jh/3, vol: 14 },
+      { id: "N_E", sx: cx - jw/4, sy: cy - jh/2, ex: cx + jw/2, ey: cy + jh/4, cpx: cx, cpy: cy, vol: 18 },
+
+      // South approaches
+      { id: "S_N", sx: cx + jw/4, sy: cy + jh/2, ex: cx + jw/4, ey: cy - jh/2, cpx: cx + jw/4, cpy: cy, vol: 26 },
+      { id: "S_E", sx: cx + jw/4, sy: cy + jh/2, ex: cx + jw/2, ey: cy + jh/4, cpx: cx + jw/3, cpy: cy + jh/3, vol: 12 },
+      { id: "S_W", sx: cx + jw/4, sy: cy + jh/2, ex: cx - jw/2, ey: cy - jh/4, cpx: cx, cpy: cy, vol: 15 },
+
+      // East approaches
+      { id: "E_W", sx: cx + jw/2, sy: cy - jh/4, ex: cx - jw/2, ey: cy - jh/4, cpx: cx, cpy: cy - jh/4, vol: 32 },
+      { id: "E_N", sx: cx + jw/2, sy: cy - jh/4, ex: cx + jw/4, ey: cy - jh/2, cpx: cx + jw/3, cpy: cy - jh/3, vol: 11 },
+      { id: "E_S", sx: cx + jw/2, sy: cy - jh/4, ex: cx - jw/4, ey: cy + jh/2, cpx: cx, cpy: cy, vol: 19 },
+
+      // West approaches
+      { id: "W_E", sx: cx - jw/2, sy: cy + jh/4, ex: cx + jw/2, ey: cy + jh/4, cpx: cx, cpy: cy + jh/4, vol: 28 },
+      { id: "W_S", sx: cx - jw/2, sy: cy + jh/4, ex: cx - jw/4, ey: cy + jh/2, cpx: cx - jw/3, cpy: cy + jh/3, vol: 16 },
+      { id: "W_N", sx: cx - jw/2, sy: cy + jh/4, ex: cx + jw/4, ey: cy - jh/2, cpx: cx, cpy: cy, vol: 13 },
+    ];
+
+    corridors.forEach(c => {
+      const match = desireLines.find(dl => dl.movement_id === c.id);
+      const vol = match ? match.vehicle_count : c.vol;
+      if (vol <= 0) return;
+
+      const lw = Math.max(1.8, Math.min(6.5, 1.5 + (vol / 40.0) * 4.5)) / this.scale;
+      ctx.strokeStyle = (vol > 20) ? "rgba(0, 229, 255, 0.75)" : "rgba(56, 189, 248, 0.45)";
+      ctx.lineWidth = lw;
+
+      ctx.beginPath();
+      ctx.moveTo(c.sx, c.sy);
+      ctx.quadraticCurveTo(c.cpx, c.cpy, c.ex, c.ey);
+      ctx.stroke();
+
+      // Arrowhead at destination
+      const arrowLen = 8 / this.scale;
+      const angle = Math.atan2(c.ey - c.cpy, c.ex - c.cpx);
+      ctx.fillStyle = (vol > 20) ? "#00E5FF" : "#38BDF8";
+      ctx.beginPath();
+      ctx.moveTo(c.ex, c.ey);
+      ctx.lineTo(c.ex - arrowLen * Math.cos(angle - Math.PI / 6), c.ey - arrowLen * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(c.ex - arrowLen * Math.cos(angle + Math.PI / 6), c.ey - arrowLen * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  _renderSpatialQueueBars(ctx) {
+    const w = this.bgWidth || 1920;
+    const h = this.bgHeight || 1080;
+    const cx = w * 0.5;
+    const cy = h * 0.52;
+    const jw = w * 0.22;
+    const jh = h * 0.24;
+
+    const queues = (this.level4Data && this.level4Data.spatial_queues) ? this.level4Data.spatial_queues : [
+      { approach: "Northbound Approach (Inbound)", queued_vehicle_count: 5, queue_length_meters: 32.5, road_name: "North Corridor" },
+      { approach: "Eastbound Approach (Inbound)", queued_vehicle_count: 7, queue_length_meters: 45.5, road_name: "East Corridor" }
+    ];
+
+    queues.forEach(q => {
+      if (q.queued_vehicle_count <= 0) return;
+      const app = (q.approach || "").toLowerCase();
+      const qLenPx = Math.min(220, q.queue_length_meters * (1.0 / 0.065) * 0.4);
+
+      ctx.strokeStyle = "#F43F5E";
+      ctx.lineWidth = 7 / this.scale;
+      ctx.lineCap = "round";
+
+      let sx = 0, sy = 0, ex = 0, ey = 0;
+      let labelX = 0, labelY = 0;
+
+      if (app.includes("north") || app.includes("nb")) {
+        sx = cx - jw/4; sy = cy - jh/2;
+        ex = cx - jw/4; ey = sy - qLenPx;
+        labelX = sx; labelY = ey - 10 / this.scale;
+      } else if (app.includes("south") || app.includes("sb")) {
+        sx = cx + jw/4; sy = cy + jh/2;
+        ex = cx + jw/4; ey = sy + qLenPx;
+        labelX = sx; labelY = ey + 14 / this.scale;
+      } else if (app.includes("east") || app.includes("eb")) {
+        sx = cx + jw/2; sy = cy - jh/4;
+        ex = sx + qLenPx; ey = cy - jh/4;
+        labelX = ex + 10 / this.scale; labelY = ey;
+      } else {
+        sx = cx - jw/2; sy = cy + jh/4;
+        ex = sx - qLenPx; ey = cy + jh/4;
+        labelX = ex - 10 / this.scale; labelY = ey;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+
+      // Queue Label Badge
+      const fs = Math.max(9, Math.round(10 / this.scale));
+      ctx.font = `bold ${fs}px monospace`;
+      const qText = `🛑 QUEUE ${q.queue_length_meters}m (${q.queued_vehicle_count} veh)`;
+      const tw = ctx.measureText(qText).width;
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.9)";
+      ctx.fillRect(labelX - tw/2 - 4 / this.scale, labelY - 7 / this.scale, tw + 8 / this.scale, 14 / this.scale);
+      ctx.strokeStyle = "#F43F5E";
+      ctx.lineWidth = 1 / this.scale;
+      ctx.strokeRect(labelX - tw/2 - 4 / this.scale, labelY - 7 / this.scale, tw + 8 / this.scale, 14 / this.scale);
+      ctx.fillStyle = "#F43F5E";
+      ctx.textAlign = "center";
+      ctx.fillText(qText, labelX, labelY + 3.5 / this.scale);
+      ctx.textAlign = "start";
+    });
+  }
+
   clear() {
     this.tracks.clear();
     this.selectedTrackId = null;
@@ -666,4 +924,5 @@ class TrajectoryMapVisualizer {
     this.clear();
   }
 }
+
 
