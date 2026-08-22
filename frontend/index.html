@@ -154,138 +154,348 @@
         </div>
       </section>
 
-      <!-- RIGHT: Telemetry & Traffic Taxonomy Analytics Sidebar -->
-      <aside class="panel sidebar-panel">
+      <!-- RIGHT: Telemetry, Visual Analytics, and Tabular Analytics Sidebar -->
+      <aside class="panel sidebar-panel" style="display:flex; flex-direction:column; overflow:hidden;">
         
-        <!-- Drone Telemetry Card -->
-        <div class="card">
-          <div class="card-title">
-            <span>FlytBase Drone Telemetry</span>
-            <span class="badge badge-lime">LINK 100%</span>
+        <!-- Sidebar Navigation Tabs -->
+        <div class="panel-header" style="justify-content: space-between; padding: 0 6px;">
+          <div class="sidebar-tab-group" id="sidebarTabGroup">
+            <button class="sidebar-tab-btn active" id="tabTelemetry" type="button" title="Flight Telemetry & Road Users">TELEMETRY</button>
+            <button class="sidebar-tab-btn" id="tabL3Visual" type="button" title="Level 3 Visual Analytics">L3 VISUAL</button>
+            <button class="sidebar-tab-btn" id="tabL3Tabular" type="button" title="Level 3 Tabular Metrics">L3 TABULAR</button>
           </div>
-          <div class="telemetry-grid">
-            <div class="telemetry-item">
-              <div class="t-label">COORDINATES</div>
-              <div class="t-val" id="telGps" style="font-size:11px">18.5308, 73.8475</div>
-            </div>
-            <div class="telemetry-item">
-              <div class="t-label">ALTITUDE (AGL)</div>
-              <div class="t-val" id="telAlt">65.0 m</div>
-            </div>
-            <div class="telemetry-item">
-              <div class="t-label">HEADING (YAW)</div>
-              <div class="t-val" id="telHeading">087°</div>
-            </div>
-            <div class="telemetry-item">
-              <div class="t-label">GROUND SPEED</div>
-              <div class="t-val" id="telSpeed">8.5 m/s</div>
-            </div>
-            <div class="telemetry-item">
-              <div class="t-label">BATTERY</div>
-              <div class="t-val" id="telBattery" style="color:var(--accent-lime)">96%</div>
-            </div>
-            <div class="telemetry-item">
-              <div class="t-label">MISSION MODE</div>
-              <div class="t-val" id="telMode" style="font-size:11px">SURVEILLANCE</div>
-            </div>
-          </div>
+          <span class="badge badge-cyan" id="sidebarModeBadge" style="font-size:9px;">OPERATIONAL</span>
         </div>
 
-        <!-- Road User Breakdown -->
-        <div class="card">
-          <div class="card-title">Active Road Users By Class</div>
-          <div class="class-breakdown-list">
-            <div class="class-row">
-              <div class="class-label-wrapper">
-                <div class="class-indicator" style="background:#38BDF8"></div>
-                <span>Cars / Sedans / SUVs</span>
+        <div class="panel-content" style="padding:8px 10px; overflow-y:auto; gap:8px;">
+          
+          <!-- ── 1. TELEMETRY & TRACK INSPECTOR VIEW ────────────────────────── -->
+          <div id="viewSidebarTelemetry" style="display:flex; flex-direction:column; gap:8px;">
+            
+            <!-- Drone Telemetry Card -->
+            <div class="card">
+              <div class="card-title">
+                <span>FlytBase Drone Telemetry</span>
+                <span class="badge badge-lime">LINK 100%</span>
               </div>
-              <span class="class-count" id="countCars" style="color:#38BDF8">0</span>
-            </div>
-            <div class="class-row">
-              <div class="class-label-wrapper">
-                <div class="class-indicator" style="background:#C8F23A"></div>
-                <span>Motorcycles / Scooters</span>
+              <div class="telemetry-grid">
+                <div class="telemetry-item">
+                  <div class="t-label">COORDINATES</div>
+                  <div class="t-val" id="telGps" style="font-size:11px">18.5308, 73.8475</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">ALTITUDE (AGL)</div>
+                  <div class="t-val" id="telAlt">65.0 m</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">HEADING (YAW)</div>
+                  <div class="t-val" id="telHeading">087°</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">GROUND SPEED</div>
+                  <div class="t-val" id="telSpeed">8.5 m/s</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">BATTERY</div>
+                  <div class="t-val" id="telBattery" style="color:var(--accent-lime)">96%</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">MISSION MODE</div>
+                  <div class="t-val" id="telMode" style="font-size:11px">SURVEILLANCE</div>
+                </div>
               </div>
-              <span class="class-count" id="countBikes" style="color:#C8F23A">0</span>
             </div>
-            <div class="class-row">
-              <div class="class-label-wrapper">
-                <div class="class-indicator" style="background:#A855F7"></div>
-                <span>Buses / Transit</span>
-              </div>
-              <span class="class-count" id="countBuses" style="color:#A855F7">0</span>
-            </div>
-            <div class="class-row">
-              <div class="class-label-wrapper">
-                <div class="class-indicator" style="background:#F43F5E"></div>
-                <span>Heavy Goods (HGV / Trucks)</span>
-              </div>
-              <span class="class-count" id="countHgv" style="color:#F43F5E">0</span>
-            </div>
-            <div class="class-row">
-              <div class="class-label-wrapper">
-                <div class="class-indicator" style="background:#FB923C"></div>
-                <span>Light Goods (LGV / Vans)</span>
-              </div>
-              <span class="class-count" id="countLgv" style="color:#FB923C">0</span>
-            </div>
-            <div class="class-row">
-              <div class="class-label-wrapper">
-                <div class="class-indicator" style="background:#00FFB2"></div>
-                <span>Pedestrians / Persons</span>
-              </div>
-              <span class="class-count" id="countPedestrians" style="color:#00FFB2">0</span>
-            </div>
-          </div>
-        </div>
 
-        <!-- Selected Track Inspector Card -->
-        <div class="card" id="inspectorCard" style="display:none">
-          <div class="card-title">
-            <span>Track Inspector: <span id="inspId">#--</span></span>
-            <span class="badge badge-cyan" id="inspClass">CAR</span>
+            <!-- Road User Breakdown -->
+            <div class="card">
+              <div class="card-title">Active Road Users By Class</div>
+              <div class="class-breakdown-list">
+                <div class="class-row">
+                  <div class="class-label-wrapper">
+                    <div class="class-indicator" style="background:#38BDF8"></div>
+                    <span>Cars / Sedans / SUVs</span>
+                  </div>
+                  <span class="class-count" id="countCars" style="color:#38BDF8">0</span>
+                </div>
+                <div class="class-row">
+                  <div class="class-label-wrapper">
+                    <div class="class-indicator" style="background:#C8F23A"></div>
+                    <span>Motorcycles / Scooters</span>
+                  </div>
+                  <span class="class-count" id="countBikes" style="color:#C8F23A">0</span>
+                </div>
+                <div class="class-row">
+                  <div class="class-label-wrapper">
+                    <div class="class-indicator" style="background:#A855F7"></div>
+                    <span>Buses / Transit</span>
+                  </div>
+                  <span class="class-count" id="countBuses" style="color:#A855F7">0</span>
+                </div>
+                <div class="class-row">
+                  <div class="class-label-wrapper">
+                    <div class="class-indicator" style="background:#F43F5E"></div>
+                    <span>Heavy Goods (HGV / Trucks)</span>
+                  </div>
+                  <span class="class-count" id="countHgv" style="color:#F43F5E">0</span>
+                </div>
+                <div class="class-row">
+                  <div class="class-label-wrapper">
+                    <div class="class-indicator" style="background:#FB923C"></div>
+                    <span>Light Goods (LGV / Vans)</span>
+                  </div>
+                  <span class="class-count" id="countLgv" style="color:#FB923C">0</span>
+                </div>
+                <div class="class-row">
+                  <div class="class-label-wrapper">
+                    <div class="class-indicator" style="background:#00FFB2"></div>
+                    <span>Pedestrians / Persons</span>
+                  </div>
+                  <span class="class-count" id="countPedestrians" style="color:#00FFB2">0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Selected Track Inspector Card -->
+            <div class="card" id="inspectorCard" style="display:none">
+              <div class="card-title">
+                <span>Track Inspector: <span id="inspId">#--</span></span>
+                <span class="badge badge-cyan" id="inspClass">CAR</span>
+              </div>
+              <div class="telemetry-grid">
+                <div class="telemetry-item">
+                  <div class="t-label">FINE-GRAINED CLASS</div>
+                  <div class="t-val" id="inspFineClass" style="color:var(--accent-cyan)">--</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">SPEED</div>
+                  <div class="t-val" id="inspSpeed" style="color:var(--accent-lime)">--</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">ACCELERATION</div>
+                  <div class="t-val" id="inspAccel">--</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">WORLD POSITION</div>
+                  <div class="t-val" id="inspWorldPos" style="font-size:11px">--</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">TRAIL DISTANCE</div>
+                  <div class="t-val" id="inspDist">--</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">QUALITY</div>
+                  <div class="t-val" id="inspQuality" style="font-size:10.5px">VALID</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">FRAMES TRACKED</div>
+                  <div class="t-val" id="inspFrames">--</div>
+                </div>
+                <div class="telemetry-item">
+                  <div class="t-label">DURATION SEEN</div>
+                  <div class="t-val" id="inspDuration">--</div>
+                </div>
+              </div>
+            </div>
+
           </div>
-          <div class="telemetry-grid">
-            <div class="telemetry-item">
-              <div class="t-label">FINE-GRAINED CLASS</div>
-              <div class="t-val" id="inspFineClass" style="color:var(--accent-cyan)">--</div>
+
+          <!-- ── 2. LEVEL 3 VISUAL ANALYTICS VIEW ───────────────────────────── -->
+          <div id="viewSidebarL3Visual" style="display:none; flex-direction:column; gap:8px;">
+            
+            <!-- Time Filter Bar -->
+            <div class="l3-sidebar-controls">
+              <div class="time-filter-group" style="width:100%; display:flex; justify-content:space-between;">
+                <button class="time-chip" data-range="live" type="button">LIVE</button>
+                <button class="time-chip" data-range="5m" type="button">5M</button>
+                <button class="time-chip" data-range="10m" type="button">10M</button>
+                <button class="time-chip" data-range="30m" type="button">30M</button>
+                <button class="time-chip active" data-range="all" type="button">ALL</button>
+              </div>
             </div>
-            <div class="telemetry-item">
-              <div class="t-label">SPEED</div>
-              <div class="t-val" id="inspSpeed" style="color:var(--accent-lime)">--</div>
+
+            <!-- Active Cross-Filter Indicator -->
+            <div id="l3ActiveFilterBadge" style="display:none; background:rgba(244,63,94,0.15); border:1px solid var(--accent-crimson); color:var(--accent-crimson); padding:2px 8px; border-radius:3px; font-size:10px; font-family:var(--font-mono); align-items:center; justify-content:space-between;">
+              <span id="l3FilterText">FILTER ACTIVE</span>
+              <button id="btnClearL3Filter" type="button" style="background:none; border:none; color:var(--accent-crimson); cursor:pointer; font-weight:bold;">✕</button>
             </div>
-            <div class="telemetry-item">
-              <div class="t-label">ACCELERATION</div>
-              <div class="t-val" id="inspAccel">--</div>
+
+            <!-- Top 6 Operational KPI Strip Grid -->
+            <div class="kpi-sidebar-grid">
+              <div class="kpi-card">
+                <div class="kpi-label">TOTAL FLOW</div>
+                <div class="kpi-val" id="kpiTotalFlow" style="color:var(--accent-cyan)">0.0</div>
+                <div class="kpi-unit">veh / min</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">AVG SPEED</div>
+                <div class="kpi-val" id="kpiAvgSpeed" style="color:var(--accent-lime)">0.0</div>
+                <div class="kpi-unit">km / h</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">DENSITY</div>
+                <div class="kpi-val" id="kpiDensity" style="color:var(--accent-blue)">0.0</div>
+                <div class="kpi-unit">veh / km</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">OCCUPANCY</div>
+                <div class="kpi-val" id="kpiOccupancy" style="color:var(--accent-orange)">0.0%</div>
+                <div class="kpi-unit">% occupied</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">ACTIVE QUEUE</div>
+                <div class="kpi-val" id="kpiQueue" style="color:var(--accent-crimson)">0.0</div>
+                <div class="kpi-unit">metres (<6km/h)</div>
+              </div>
+              <div class="kpi-card">
+                <div class="kpi-label">PEAK FLOW</div>
+                <div class="kpi-val" id="kpiPeakFlow" style="color:var(--accent-purple)">0.0</div>
+                <div class="kpi-unit">veh / min</div>
+              </div>
             </div>
-            <div class="telemetry-item">
-              <div class="t-label">WORLD POSITION</div>
-              <div class="t-val" id="inspWorldPos" style="font-size:11px">--</div>
+
+            <!-- 1. Flow Timeline Card -->
+            <div class="card">
+              <div class="card-title" style="justify-content:space-between;">
+                <span>1. Traffic Flow Timeline</span>
+                <span style="font-size:8.5px; color:#FB923C; font-family:var(--font-mono)">✦ PEAK POINT</span>
+              </div>
+              <div style="height:105px; width:100%; position:relative;">
+                <canvas id="flowTimelineCanvas"></canvas>
+              </div>
             </div>
-            <div class="telemetry-item">
-              <div class="t-label">TRAIL DISTANCE</div>
-              <div class="t-val" id="inspDist">--</div>
+
+            <!-- 2. Movement Flow Card -->
+            <div class="card">
+              <div class="card-title" style="justify-content:space-between;">
+                <span>2. Movement Flow (12 Vectors)</span>
+                <span style="font-size:8.5px; color:var(--text-muted)">CLICK TO FILTER</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div id="intersectionDiagram" style="width:105px; height:105px; flex-shrink:0;">
+                  <svg id="intersectionSvg" viewBox="0 0 200 200" style="width:100%; height:100%;"></svg>
+                </div>
+                <div id="movementListGrid" class="movement-list-scroll" style="flex:1; max-height:105px; overflow-y:auto;"></div>
+              </div>
             </div>
-            <div class="telemetry-item">
-              <div class="t-label">QUALITY</div>
-              <div class="t-val" id="inspQuality" style="font-size:10.5px">VALID</div>
+
+            <!-- 3. Lane Volume Breakdown Card -->
+            <div class="card">
+              <div class="card-title" style="justify-content:space-between;">
+                <span>3. Lane Volume & Split</span>
+                <span style="font-size:8.5px; color:var(--text-muted)">CLICK TO FILTER</span>
+              </div>
+              <div id="laneVolumeList" style="max-height:115px; overflow-y:auto; display:flex; flex-direction:column; gap:5px;"></div>
             </div>
-            <div class="telemetry-item">
-              <div class="t-label">FRAMES TRACKED</div>
-              <div class="t-val" id="inspFrames">--</div>
+
+            <!-- 4. Modal Split Card -->
+            <div class="card">
+              <div class="card-title">4. Modal Split & Class Ratio</div>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="width:75px; height:75px; flex-shrink:0;">
+                  <canvas id="modalDonutCanvas" width="75" height="75"></canvas>
+                </div>
+                <div id="modalSplitList" style="flex:1; display:flex; flex-direction:column; gap:2.5px; font-size:9.5px;"></div>
+              </div>
             </div>
-            <div class="telemetry-item">
-              <div class="t-label">DURATION SEEN</div>
-              <div class="t-val" id="inspDuration">--</div>
+
+            <!-- 5. Queue Evolution Card -->
+            <div class="card">
+              <div class="card-title" style="justify-content:space-between;">
+                <span>5. Queue Evolution (m)</span>
+                <span id="queueMetaStats" style="font-size:9px; color:var(--accent-crimson); font-family:var(--font-mono)">MAX: 0m</span>
+              </div>
+              <div style="height:95px; width:100%;">
+                <canvas id="queueEvolutionCanvas"></canvas>
+              </div>
             </div>
+
+            <!-- 6. Origin-Destination (OD) Matrix Card -->
+            <div class="card">
+              <div class="card-title" style="justify-content:space-between;">
+                <span>6. Origin–Destination Matrix</span>
+                <span style="font-size:8.5px; color:var(--text-muted)">CLICK CELL TO HIGHLIGHT</span>
+              </div>
+              <div style="display:flex; justify-content:center;">
+                <table class="od-matrix-table" id="odMatrixTable"></table>
+              </div>
+            </div>
+
+            <!-- 7. Flow-Density Relationship Card -->
+            <div class="card">
+              <div class="card-title" style="justify-content:space-between;">
+                <span>7. Flow–Density Relationship</span>
+                <span style="font-size:8.5px; color:var(--text-muted)">FREE / HIGH / CONGESTED</span>
+              </div>
+              <div style="height:95px; width:100%;">
+                <canvas id="flowDensityCanvas"></canvas>
+              </div>
+            </div>
+
           </div>
+
+          <!-- ── 3. LEVEL 3 TABULAR METRICS VIEW ────────────────────────────── -->
+          <div id="viewSidebarL3Tabular" style="display:none; flex-direction:column; gap:8px;">
+            
+            <!-- Operational KPIs Table -->
+            <div class="card">
+              <div class="card-title">Operational KPIs Summary</div>
+              <table class="tabular-mini-table" id="tableKpiSummary">
+                <thead>
+                  <tr><th>METRIC</th><th>VALUE</th><th>UNIT</th><th>STATUS</th></tr>
+                </thead>
+                <tbody id="tbodyKpiSummary"></tbody>
+              </table>
+            </div>
+
+            <!-- Directional Movement Table -->
+            <div class="card">
+              <div class="card-title">12 Movement Directional Counts</div>
+              <table class="tabular-mini-table" id="tableMovements">
+                <thead>
+                  <tr><th>CORRIDOR</th><th>COUNT</th><th>SHARE</th></tr>
+                </thead>
+                <tbody id="tbodyMovements"></tbody>
+              </table>
+            </div>
+
+            <!-- Lane Volume Table -->
+            <div class="card">
+              <div class="card-title">Lane Corridor Performance</div>
+              <table class="tabular-mini-table" id="tableLanes">
+                <thead>
+                  <tr><th>LANE</th><th>VOL</th><th>FLOW (vpm)</th><th>SPLIT</th></tr>
+                </thead>
+                <tbody id="tbodyLanes"></tbody>
+              </table>
+            </div>
+
+            <!-- Modal Classification Table -->
+            <div class="card">
+              <div class="card-title">Vehicle Taxonomy Distribution</div>
+              <table class="tabular-mini-table" id="tableModalBreakdown">
+                <thead>
+                  <tr><th>CLASS</th><th>COUNT</th><th>SHARE %</th></tr>
+                </thead>
+                <tbody id="tbodyModalBreakdown"></tbody>
+              </table>
+            </div>
+
+            <!-- Origin-Destination Raw Counts Table -->
+            <div class="card">
+              <div class="card-title">Origin-Destination (OD) Matrix</div>
+              <div style="display:flex; justify-content:center;">
+                <table class="od-matrix-table" id="odMatrixTableTabular"></table>
+              </div>
+            </div>
+
+          </div>
+
         </div>
 
       </aside>
 
-      <!-- BOTTOM: Level 1/2 Persistent Track Table OR Level 3 Aggregate Analytics -->
-      <section class="panel bottom-panel" id="viewLevel12" style="display:none;">
+      <!-- BOTTOM: Persistent Trajectory Table (Full Width) -->
+      <section class="panel bottom-panel">
         <div class="panel-header">
           <div class="title-badge">
             <div class="indicator" style="background:var(--accent-blue)"></div>
@@ -317,175 +527,6 @@
             </tbody>
           </table>
         </div>
-      </section>
-
-      <!-- LEVEL 3 AGGREGATE TRAFFIC INTELLIGENCE DASHBOARD -->
-      <section class="panel bottom-panel" id="viewLevel3" style="display:flex; flex-direction:column; overflow-y:auto;">
-        
-        <!-- Level 3 Header & Common Time Filter Bar -->
-        <div class="l3-dashboard-header">
-          <div class="title-badge">
-            <div class="indicator" style="background:var(--accent-cyan)"></div>
-            <span>LEVEL 3 AGGREGATE TRAFFIC INTELLIGENCE & MACRO ANALYTICS</span>
-          </div>
-
-          <div class="l3-controls-bar">
-            <span style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono)">TIME FILTER:</span>
-            <div class="time-filter-group">
-              <button class="time-chip" data-range="live" type="button">LIVE</button>
-              <button class="time-chip" data-range="5m" type="button">5 MIN</button>
-              <button class="time-chip" data-range="10m" type="button">10 MIN</button>
-              <button class="time-chip" data-range="30m" type="button">30 MIN</button>
-              <button class="time-chip active" data-range="all" type="button">ALL TIME</button>
-            </div>
-            <div id="l3ActiveFilterBadge" style="display:none; background:rgba(244,63,94,0.15); border:1px solid var(--accent-crimson); color:var(--accent-crimson); padding:2px 8px; border-radius:3px; font-size:10px; font-family:var(--font-mono); align-items:center; gap:6px;">
-              <span id="l3FilterText">FILTER ACTIVE</span>
-              <button id="btnClearL3Filter" type="button" style="background:none; border:none; color:var(--accent-crimson); cursor:pointer; font-weight:bold;">✕</button>
-            </div>
-            <button class="tool-btn" id="btnRefreshL3" type="button" title="Refresh analytics">↻ Sync Analytics</button>
-          </div>
-        </div>
-
-        <!-- 1. Top 6 Operational KPI Strip -->
-        <div class="kpi-strip-grid">
-          <div class="kpi-card">
-            <div class="kpi-label">TOTAL FLOW</div>
-            <div class="kpi-val" id="kpiTotalFlow" style="color:var(--accent-cyan)">0.0</div>
-            <div class="kpi-unit">vehicles / min</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">AVERAGE SPEED</div>
-            <div class="kpi-val" id="kpiAvgSpeed" style="color:var(--accent-lime)">0.0</div>
-            <div class="kpi-unit">km / h</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">TRAFFIC DENSITY</div>
-            <div class="kpi-val" id="kpiDensity" style="color:var(--accent-blue)">0.0</div>
-            <div class="kpi-unit">vehicles / km</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">ROAD OCCUPANCY</div>
-            <div class="kpi-val" id="kpiOccupancy" style="color:var(--accent-orange)">0.0%</div>
-            <div class="kpi-unit">% surface occupied</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">ACTIVE QUEUE</div>
-            <div class="kpi-val" id="kpiQueue" style="color:var(--accent-crimson)">0.0</div>
-            <div class="kpi-unit">metres (< 6 km/h)</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">PEAK FLOW</div>
-            <div class="kpi-val" id="kpiPeakFlow" style="color:var(--accent-purple)">0.0</div>
-            <div class="kpi-unit">vehicles / min</div>
-          </div>
-        </div>
-
-        <!-- 2. Visualization Grid (8 Analytical Modules) -->
-        <div class="l3-visual-grid">
-          
-          <!-- Row 1: Flow Timeline + Movement Flow -->
-          <div class="l3-grid-row">
-            <!-- 1. Traffic Flow Timeline -->
-            <div class="l3-widget-card" style="flex:1.4;">
-              <div class="widget-header">
-                <div class="widget-title">1. TRAFFIC FLOW TIMELINE (VEHICLES / MIN)</div>
-                <div class="widget-legend">
-                  <span style="color:#38BDF8">■ Cars</span>
-                  <span style="color:#C8F23A">■ Bikes</span>
-                  <span style="color:#A855F7">■ Buses</span>
-                  <span style="color:#F43F5E">■ Trucks</span>
-                  <span style="color:#FB923C">✦ Peak Flow</span>
-                </div>
-              </div>
-              <div class="widget-body" style="height:140px; position:relative;">
-                <canvas id="flowTimelineCanvas"></canvas>
-              </div>
-            </div>
-
-            <!-- 2. Movement Flow Visualization -->
-            <div class="l3-widget-card" style="flex:1;">
-              <div class="widget-header">
-                <div class="widget-title">2. INTERSECTION MOVEMENT FLOW (12 VECTORS)</div>
-                <span style="font-size:9px; color:var(--text-muted)">CLICK ARROW TO FILTER</span>
-              </div>
-              <div class="widget-body" style="height:140px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                <div id="intersectionDiagram" style="width:125px; height:125px; position:relative; flex-shrink:0;">
-                  <svg id="intersectionSvg" viewBox="0 0 200 200" style="width:100%; height:100%;"></svg>
-                </div>
-                <div id="movementListGrid" class="movement-list-scroll" style="flex:1; height:130px; overflow-y:auto;"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Row 2: Lane Volumes + Modal Split -->
-          <div class="l3-grid-row">
-            <!-- 3. Lane Volume Breakdown -->
-            <div class="l3-widget-card" style="flex:1.2;">
-              <div class="widget-header">
-                <div class="widget-title">3. LANE & CORRIDOR PASSAGE VOLUME</div>
-                <span style="font-size:9px; color:var(--text-muted)">CLICK BAR TO FILTER</span>
-              </div>
-              <div class="widget-body" id="laneVolumeList" style="height:130px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding-top:4px;">
-                <!-- Dynamically populated lane bars -->
-              </div>
-            </div>
-
-            <!-- 4. Modal Split -->
-            <div class="l3-widget-card" style="flex:0.8;">
-              <div class="widget-header">
-                <div class="widget-title">4. MODAL SPLIT & CLASS RATIO</div>
-              </div>
-              <div class="widget-body" style="height:130px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                <div style="width:85px; height:85px; position:relative; flex-shrink:0;">
-                  <canvas id="modalDonutCanvas" width="85" height="85"></canvas>
-                </div>
-                <div id="modalSplitList" style="flex:1; display:flex; flex-direction:column; gap:3px; font-size:10.5px;"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Row 3: Queue Evolution + Origin-Destination Matrix + Flow-Density -->
-          <div class="l3-grid-row">
-            <!-- 5. Queue Evolution Time-Series -->
-            <div class="l3-widget-card" style="flex:1;">
-              <div class="widget-header">
-                <div class="widget-title">5. QUEUE EVOLUTION & DISSIPATION (m)</div>
-                <div id="queueMetaStats" style="font-size:9.5px; color:var(--accent-crimson); font-family:var(--font-mono)">MAX: 0m</div>
-              </div>
-              <div class="widget-body" style="height:130px;">
-                <canvas id="queueEvolutionCanvas"></canvas>
-              </div>
-            </div>
-
-            <!-- 6. Origin-Destination (OD) Matrix -->
-            <div class="l3-widget-card" style="flex:1;">
-              <div class="widget-header">
-                <div class="widget-title">6. ORIGIN–DESTINATION MATRIX (N, S, E, W)</div>
-                <span style="font-size:9px; color:var(--text-muted)">CLICK CELL TO HIGHLIGHT</span>
-              </div>
-              <div class="widget-body" style="height:130px; display:flex; align-items:center; justify-content:center;">
-                <table class="od-matrix-table" id="odMatrixTable"></table>
-              </div>
-            </div>
-
-            <!-- 7. Flow-Density Fundamental Relationship -->
-            <div class="l3-widget-card" style="flex:1;">
-              <div class="widget-header">
-                <div class="widget-title">7. FLOW–DENSITY RELATIONSHIP</div>
-                <div class="widget-legend">
-                  <span style="color:#C8F23A">● Free</span>
-                  <span style="color:#38BDF8">● High</span>
-                  <span style="color:#F43F5E">● Congested</span>
-                </div>
-              </div>
-              <div class="widget-body" style="height:130px;">
-                <canvas id="flowDensityCanvas"></canvas>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
       </section>
 
     </main>

@@ -819,6 +819,8 @@ async function loadCalibrationStatus() {
    LEVEL 3 AGGREGATE TRAFFIC INTELLIGENCE CONTROLLER & CHART RENDERERS
 ============================================================================== */
 
+let currentSidebarTab = "visual"; // "telemetry", "visual", "tabular"
+
 function initLevel3UI() {
   const btnL1 = document.getElementById("btnNavLevel1");
   const btnL2 = document.getElementById("btnNavLevel2");
@@ -827,6 +829,15 @@ function initLevel3UI() {
   if (btnL1) btnL1.onclick = () => setLevelMode(1);
   if (btnL2) btnL2.onclick = () => setLevelMode(2);
   if (btnL3) btnL3.onclick = () => setLevelMode(3);
+
+  // Sidebar Tab Switchers
+  const tabTel = document.getElementById("tabTelemetry");
+  const tabVis = document.getElementById("tabL3Visual");
+  const tabTab = document.getElementById("tabL3Tabular");
+
+  if (tabTel) tabTel.onclick = () => setSidebarTab("telemetry");
+  if (tabVis) tabVis.onclick = () => setSidebarTab("visual");
+  if (tabTab) tabTab.onclick = () => setSidebarTab("tabular");
 
   // Time Range Chips
   document.querySelectorAll(".time-chip").forEach(chip => {
@@ -851,25 +862,57 @@ function initLevel3UI() {
   }
 }
 
+function setSidebarTab(tabName) {
+  currentSidebarTab = tabName;
+  const tabTel = document.getElementById("tabTelemetry");
+  const tabVis = document.getElementById("tabL3Visual");
+  const tabTab = document.getElementById("tabL3Tabular");
+
+  const viewTel = document.getElementById("viewSidebarTelemetry");
+  const viewVis = document.getElementById("viewSidebarL3Visual");
+  const viewTab = document.getElementById("viewSidebarL3Tabular");
+  const badge = document.getElementById("sidebarModeBadge");
+
+  if (tabTel) tabTel.classList.toggle("active", tabName === "telemetry");
+  if (tabVis) tabVis.classList.toggle("active", tabName === "visual");
+  if (tabTab) tabTab.classList.toggle("active", tabName === "tabular");
+
+  if (viewTel) viewTel.style.display = (tabName === "telemetry") ? "flex" : "none";
+  if (viewVis) viewVis.style.display = (tabName === "visual") ? "flex" : "none";
+  if (viewTab) viewTab.style.display = (tabName === "tabular") ? "flex" : "none";
+
+  if (badge) {
+    if (tabName === "telemetry") {
+      badge.textContent = "OPERATIONAL";
+      badge.style.color = "var(--accent-lime)";
+    } else if (tabName === "visual") {
+      badge.textContent = "L3 VISUAL";
+      badge.style.color = "var(--accent-cyan)";
+    } else {
+      badge.textContent = "L3 TABULAR";
+      badge.style.color = "var(--accent-orange)";
+    }
+  }
+
+  if (tabName === "visual" || tabName === "tabular") {
+    refreshLevel3Analytics();
+  }
+}
+
 function setLevelMode(level) {
   currentActiveLevel = level;
   const btnL1 = document.getElementById("btnNavLevel1");
   const btnL2 = document.getElementById("btnNavLevel2");
   const btnL3 = document.getElementById("btnNavLevel3");
-  const v12 = document.getElementById("viewLevel12");
-  const v3 = document.getElementById("viewLevel3");
 
-  btnL1.classList.toggle("active", level === 1);
-  btnL2.classList.toggle("active", level === 2);
-  btnL3.classList.toggle("active", level === 3);
+  if (btnL1) btnL1.classList.toggle("active", level === 1);
+  if (btnL2) btnL2.classList.toggle("active", level === 2);
+  if (btnL3) btnL3.classList.toggle("active", level === 3);
 
   if (level === 1 || level === 2) {
-    if (v12) v12.style.display = "block";
-    if (v3) v3.style.display = "none";
+    setSidebarTab("telemetry");
   } else {
-    if (v12) v12.style.display = "none";
-    if (v3) v3.style.display = "flex";
-    refreshLevel3Analytics();
+    setSidebarTab("visual");
   }
 }
 
@@ -937,7 +980,7 @@ async function refreshLevel3Analytics() {
       document.getElementById("kpiPeakFlow").textContent = data.kpis.peak_flow_vpm.toFixed(1);
     }
 
-    // 2. Render 8 Visual Analytics Grid Modules
+    // 2. Render Visual Form Charts
     renderFlowTimelineChart(data.flow_timeline);
     renderIntersectionMovements(data.movements);
     renderLaneVolumes(data.lane_volumes);
@@ -946,9 +989,121 @@ async function refreshLevel3Analytics() {
     renderOdMatrix(data.od_matrix);
     renderFlowDensityScatter(data.flow_density);
 
+    // 3. Render Tabular Form Tables
+    renderTabularAnalytics(data);
+
   } catch (err) {
     console.warn("Failed to refresh Level 3 analytics:", err);
   }
+}
+
+function renderTabularAnalytics(data) {
+  // 1. KPI Summary Table
+  const tbodyKpi = document.getElementById("tbodyKpiSummary");
+  if (tbodyKpi && data.kpis) {
+    tbodyKpi.innerHTML = `
+      <tr><td>TOTAL FLOW</td><td style="color:var(--accent-cyan); font-weight:bold;">${data.kpis.total_flow_vpm.toFixed(1)}</td><td>veh/min</td><td><span class="badge badge-cyan">NORMAL</span></td></tr>
+      <tr><td>AVERAGE SPEED</td><td style="color:var(--accent-lime); font-weight:bold;">${data.kpis.average_speed_kmh.toFixed(1)}</td><td>km/h</td><td><span class="badge badge-lime">FLOWING</span></td></tr>
+      <tr><td>TRAFFIC DENSITY</td><td style="color:var(--accent-blue); font-weight:bold;">${data.kpis.traffic_density_vpk.toFixed(1)}</td><td>veh/km</td><td><span class="badge badge-cyan">${data.kpis.traffic_density_vpk > 50 ? 'HEAVY' : 'MODERATE'}</span></td></tr>
+      <tr><td>ROAD OCCUPANCY</td><td style="color:var(--accent-orange); font-weight:bold;">${data.kpis.road_occupancy_pct.toFixed(1)}%</td><td>% surface</td><td><span class="badge badge-orange">${data.kpis.road_occupancy_pct > 20 ? 'HIGH' : 'NOMINAL'}</span></td></tr>
+      <tr><td>ACTIVE QUEUE</td><td style="color:var(--accent-crimson); font-weight:bold;">${data.kpis.active_queue_meters.toFixed(1)}</td><td>metres</td><td><span class="badge ${data.kpis.active_queue_meters > 20 ? 'badge-crimson' : 'badge-lime'}">${data.kpis.active_queue_meters > 20 ? 'QUEUEING' : 'FREE'}</span></td></tr>
+      <tr><td>PEAK FLOW</td><td style="color:var(--accent-purple); font-weight:bold;">${data.kpis.peak_flow_vpm.toFixed(1)}</td><td>veh/min</td><td><span class="badge badge-cyan">RECORDED</span></td></tr>
+    `;
+  }
+
+  // 2. Movements Table
+  const tbodyMov = document.getElementById("tbodyMovements");
+  if (tbodyMov && data.movements) {
+    tbodyMov.innerHTML = "";
+    data.movements.forEach(m => {
+      const tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.onclick = () => applyL3Filter("movement", m.movement, `MOVEMENT: ${m.movement}`);
+      tr.innerHTML = `
+        <td style="font-weight:600; color:var(--accent-cyan);">${m.movement}</td>
+        <td><strong>${m.count}</strong></td>
+        <td style="color:var(--text-secondary);">${m.percentage}%</td>
+      `;
+      tbodyMov.appendChild(tr);
+    });
+  }
+
+  // 3. Lanes Table
+  const tbodyLanes = document.getElementById("tbodyLanes");
+  if (tbodyLanes && data.lane_volumes) {
+    tbodyLanes.innerHTML = "";
+    data.lane_volumes.forEach(l => {
+      const tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.onclick = () => applyL3Filter("lane", l.lane_id, `LANE: ${l.lane_id}`);
+      const s = l.split || { cars: 0, motorcycles: 0 };
+      tr.innerHTML = `
+        <td style="font-weight:600; color:var(--accent-blue);">${l.lane_id}</td>
+        <td><strong>${l.volume}</strong></td>
+        <td>${l.flow_vpm}</td>
+        <td>${s.cars}C / ${s.motorcycles}B</td>
+      `;
+      tbodyLanes.appendChild(tr);
+    });
+  }
+
+  // 4. Modal Breakdown Table
+  const tbodyModal = document.getElementById("tbodyModalBreakdown");
+  if (tbodyModal && data.modal_split) {
+    tbodyModal.innerHTML = "";
+    data.modal_split.forEach(s => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><span style="color:${s.color}; font-weight:600;">■ ${s.category}</span></td>
+        <td><strong>${s.count}</strong></td>
+        <td style="color:var(--text-secondary);">${s.percentage}%</td>
+      `;
+      tbodyModal.appendChild(tr);
+    });
+  }
+
+  // 5. Origin-Destination Table (Tabular)
+  const odTabular = document.getElementById("odMatrixTableTabular");
+  if (odTabular && data.od_matrix) {
+    renderOdMatrixToTable(odTabular, data.od_matrix);
+  }
+}
+
+function renderOdMatrixToTable(tableEl, odData) {
+  tableEl.innerHTML = "";
+  if (!odData || odData.length === 0) {
+    tableEl.innerHTML = '<tr><td style="color:var(--text-muted);">No OD movements recorded</td></tr>';
+    return;
+  }
+  const cardinals = ["N", "S", "E", "W"];
+  let thead = "<tr><th>O \\ D</th>";
+  cardinals.forEach(c => { thead += `<th>${c}</th>`; });
+  thead += "</tr>";
+  tableEl.innerHTML = thead;
+
+  let maxCount = 1;
+  odData.forEach(row => {
+    cardinals.forEach(dest => {
+      const cell = row.destinations[dest];
+      if (cell && cell.count > maxCount) maxCount = cell.count;
+    });
+  });
+
+  odData.forEach(row => {
+    const tr = document.createElement("tr");
+    let rowHtml = `<th style="background:rgba(19,31,55,0.8);">${row.origin}</th>`;
+    cardinals.forEach(dest => {
+      const cell = row.destinations[dest];
+      const count = cell ? cell.count : 0;
+      const isDiag = (row.origin === dest);
+      const isSelected = (l3OriginFilter === row.origin && l3DestFilter === dest);
+      const alpha = isDiag ? 0.05 : Math.max(0.1, (count / maxCount) * 0.7);
+      const bgStyle = isDiag ? "background:rgba(255,255,255,0.02); color:#64748B;" : `background:rgba(56,189,248,${alpha}); color:var(--text-primary); font-weight:bold;`;
+      rowHtml += `<td class="od-cell ${isSelected ? 'active' : ''}" data-orig="${row.origin}" data-dest="${dest}" style="${bgStyle}">${isDiag ? '—' : count}</td>`;
+    });
+    tr.innerHTML = rowHtml;
+    tableEl.appendChild(tr);
+  });
 }
 
 /* ── 1. Traffic Flow Timeline Chart ────────────────────────────────────────── */
