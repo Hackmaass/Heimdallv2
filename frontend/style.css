@@ -177,15 +177,113 @@ header.top-bar {
   border-color: var(--accent-blue);
 }
 
-/* Main Dashboard Workspace (3-Column Layout) */
+/* Main Dashboard Workspace (Fully Adjustable Split Layout) */
 main.workspace-grid {
-  display: grid;
-  grid-template-columns: 1.15fr 1fr 340px;
-  grid-template-rows: 1fr 180px;
-  gap: 1px;
-  background: var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-darkest);
   flex: 1;
   overflow: hidden;
+  position: relative;
+}
+
+.workspace-top-row {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 180px;
+  overflow: hidden;
+  position: relative;
+}
+
+.panel-video {
+  flex: 1 1 36%;
+  min-width: 250px;
+  max-width: 75%;
+}
+
+.panel-map {
+  flex: 1 1 36%;
+  min-width: 250px;
+}
+
+.sidebar-panel {
+  width: 380px;
+  min-width: 260px;
+  max-width: 800px;
+  flex-shrink: 0;
+}
+
+.bottom-panel {
+  height: 180px;
+  min-height: 80px;
+  max-height: 500px;
+  flex-shrink: 0;
+}
+
+/* Resizable Gutters / Splitters */
+.gutter {
+  background: var(--border-subtle);
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.gutter-col {
+  width: 6px;
+  cursor: col-resize;
+  border-left: 1px solid rgba(255, 255, 255, 0.05);
+  border-right: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+.gutter-row {
+  height: 6px;
+  cursor: row-resize;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.4);
+}
+
+.gutter-handle {
+  background: var(--text-muted);
+  border-radius: 2px;
+  opacity: 0.35;
+  transition: all 0.2s ease;
+}
+
+.gutter-col .gutter-handle {
+  width: 2px;
+  height: 26px;
+}
+
+.gutter-row .gutter-handle {
+  height: 2px;
+  width: 26px;
+}
+
+.gutter:hover, .gutter.active {
+  background: rgba(0, 229, 255, 0.35);
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.5);
+}
+
+.gutter:hover .gutter-handle, .gutter.active .gutter-handle {
+  background: var(--accent-cyan);
+  opacity: 1;
+  box-shadow: 0 0 8px var(--accent-cyan);
+}
+
+body.resizing-col {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
+body.resizing-row {
+  cursor: row-resize !important;
+  user-select: none !important;
 }
 
 /* Panels */

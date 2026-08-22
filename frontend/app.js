@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   connectWebSocket();
   initEventListeners();
+  initResizableLayout();
   initLevel3UI();
   loadInitialTelemetry();
   loadCalibrationStatus();
@@ -813,6 +814,155 @@ async function loadCalibrationStatus() {
       badge.style.color = "var(--accent-amber)";
     }
   } catch (e) {}
+}
+
+/* ==============================================================================
+   INTERACTIVE RESIZABLE WORKSPACE LAYOUT (HORIZONTAL & VERTICAL SPLITTERS)
+============================================================================== */
+
+function initResizableLayout() {
+  const gutterCol2 = document.getElementById("gutterCol2");
+  const panelSidebar = document.getElementById("panelSidebar");
+  const workspaceTopRow = document.getElementById("workspaceTopRow");
+
+  const gutterCol1 = document.getElementById("gutterCol1");
+  const panelVideo = document.getElementById("panelVideo");
+  const panelMap = document.getElementById("panelMap");
+
+  const gutterRow = document.getElementById("gutterRow");
+  const panelBottom = document.getElementById("panelBottom");
+
+  // Restore persistent saved panel dimensions if available
+  try {
+    const savedSidebarWidth = localStorage.getItem("heimdall_sidebar_width");
+    if (savedSidebarWidth && panelSidebar) {
+      panelSidebar.style.width = `${Math.max(260, Math.min(850, parseInt(savedSidebarWidth)))}px`;
+    }
+    const savedVideoPct = localStorage.getItem("heimdall_video_pct");
+    if (savedVideoPct && panelVideo && panelMap) {
+      panelVideo.style.flex = `0 0 ${savedVideoPct}%`;
+      panelMap.style.flex = `1 1 auto`;
+    }
+    const savedBottomHeight = localStorage.getItem("heimdall_bottom_height");
+    if (savedBottomHeight && panelBottom) {
+      panelBottom.style.height = `${Math.max(70, Math.min(550, parseInt(savedBottomHeight)))}px`;
+    }
+  } catch (e) {}
+
+  // 1. Right Sidebar Horizontal Resizer (gutterCol2)
+  if (gutterCol2 && panelSidebar) {
+    let isDragging = false;
+    let startX = 0;
+    let startWidth = 380;
+
+    gutterCol2.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      startX = e.clientX;
+      startWidth = panelSidebar.getBoundingClientRect().width;
+      gutterCol2.classList.add("active");
+      document.body.classList.add("resizing-col");
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      const deltaX = startX - e.clientX; // Dragging left increases width, dragging right decreases
+      const newWidth = Math.max(260, Math.min(850, startWidth + deltaX));
+      panelSidebar.style.width = `${newWidth}px`;
+      if (visualizer) visualizer.resize();
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (isDragging) {
+        isDragging = false;
+        gutterCol2.classList.remove("active");
+        document.body.classList.remove("resizing-col");
+        try {
+          localStorage.setItem("heimdall_sidebar_width", Math.round(panelSidebar.getBoundingClientRect().width));
+        } catch (e) {}
+        if (visualizer) visualizer.resize();
+      }
+    });
+  }
+
+  // 2. Video vs Map Horizontal Resizer (gutterCol1)
+  if (gutterCol1 && panelVideo && panelMap && workspaceTopRow) {
+    let isDragging = false;
+    let startX = 0;
+    let startVideoWidth = 0;
+
+    gutterCol1.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      startX = e.clientX;
+      startVideoWidth = panelVideo.getBoundingClientRect().width;
+      gutterCol1.classList.add("active");
+      document.body.classList.add("resizing-col");
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      const deltaX = e.clientX - startX;
+      const sidebarWidth = panelSidebar ? panelSidebar.getBoundingClientRect().width : 380;
+      const availableWidth = workspaceTopRow.getBoundingClientRect().width - sidebarWidth - 14;
+      const newVideoWidth = Math.max(220, Math.min(availableWidth - 220, startVideoWidth + deltaX));
+      const videoPct = (newVideoWidth / availableWidth) * 100;
+      panelVideo.style.flex = `0 0 ${videoPct}%`;
+      panelMap.style.flex = `1 1 auto`;
+      if (visualizer) visualizer.resize();
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (isDragging) {
+        isDragging = false;
+        gutterCol1.classList.remove("active");
+        document.body.classList.remove("resizing-col");
+        try {
+          const sidebarWidth = panelSidebar ? panelSidebar.getBoundingClientRect().width : 380;
+          const availableWidth = workspaceTopRow.getBoundingClientRect().width - sidebarWidth - 14;
+          const videoPct = (panelVideo.getBoundingClientRect().width / availableWidth) * 100;
+          localStorage.setItem("heimdall_video_pct", videoPct.toFixed(1));
+        } catch (e) {}
+        if (visualizer) visualizer.resize();
+      }
+    });
+  }
+
+  // 3. Bottom Table Vertical Resizer (gutterRow)
+  if (gutterRow && panelBottom) {
+    let isDragging = false;
+    let startY = 0;
+    let startHeight = 180;
+
+    gutterRow.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      startY = e.clientY;
+      startHeight = panelBottom.getBoundingClientRect().height;
+      gutterRow.classList.add("active");
+      document.body.classList.add("resizing-row");
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!isDragging) return;
+      const deltaY = startY - e.clientY; // Dragging up increases height, dragging down decreases
+      const newHeight = Math.max(70, Math.min(550, startHeight + deltaY));
+      panelBottom.style.height = `${newHeight}px`;
+      if (visualizer) visualizer.resize();
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (isDragging) {
+        isDragging = false;
+        gutterRow.classList.remove("active");
+        document.body.classList.remove("resizing-row");
+        try {
+          localStorage.setItem("heimdall_bottom_height", Math.round(panelBottom.getBoundingClientRect().height));
+        } catch (e) {}
+        if (visualizer) visualizer.resize();
+      }
+    });
+  }
 }
 
 /* ==============================================================================

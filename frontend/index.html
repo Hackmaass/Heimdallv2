@@ -60,102 +60,115 @@
       </div>
     </header>
 
-    <!-- Main Command Workspace Grid -->
-    <main class="workspace-grid">
+    <!-- Main Command Workspace Grid (Fully Adjustable Split Layout) -->
+    <main class="workspace-grid" id="mainWorkspace">
 
-      <!-- LEFT: Live Video Feed & Recorded Video Player with Tactical Overlay -->
-      <section class="panel">
-        <div class="panel-header">
-          <div class="title-badge">
-            <div class="indicator"></div>
-            <span>Aerial Gimbal Payload</span>
-          </div>
-          <div class="canvas-toolbar" style="position:static; padding:0; background:transparent; border:none;">
-            <button class="tool-btn active" id="btnModeLive" type="button">Live Stream</button>
-            <button class="tool-btn" id="btnModePlayer" type="button">Annotated Player</button>
-          </div>
-        </div>
+      <!-- Top Row Container (Flexible Resizable Columns) -->
+      <div class="workspace-top-row" id="workspaceTopRow">
 
-        <!-- Video Player Selector Bar -->
-        <div id="playerSelectorBar" style="display:none; background:rgba(9, 13, 22, 0.95); border-bottom:1px solid var(--border-subtle); padding:4px 10px; font-family:var(--font-mono); font-size:11px; align-items:center; justify-content:space-between; gap:8px;">
-          <span style="color:var(--text-muted); font-size:10px;">RECORDED RUN:</span>
-          <select id="selectOutputVideo" style="flex:1; background:var(--bg-darkest); border:1px solid var(--border-active); color:var(--text-primary); padding:3px 6px; font-size:10.5px; border-radius:3px;">
-            <option value="">Loading recorded outputs...</option>
-          </select>
-          <button class="tool-btn" id="btnRefreshOutputs" type="button" title="Refresh outputs">↻</button>
-        </div>
-
-        <div class="panel-content">
-          <div class="video-viewport" id="videoViewport">
-            <!-- Live Stream Canvas -->
-            <img id="liveVideoCanvas" alt="Live Drone Teleoperation Feed" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' viewBox='0 0 640 480'><rect fill='%23090d16' width='640' height='480'/><text fill='%2364748b' font-family='monospace' font-size='14' x='50%' y='50%' dominant-baseline='middle' text-anchor='middle'>WAITING FOR VIDEO STREAM OR PROCESS PIPELINE...</text></svg>">
-
-            <!-- Recorded Annotated Video Player -->
-            <video id="annotatedVideoPlayer" controls playsinline style="display:none; width:100%; height:100%; object-fit:contain; background:#000;"></video>
-
-            <!-- Video Overlay HUD -->
-            <div class="video-overlay-hud">
-              <div class="hud-pill" id="hudFrameIdx">FRAME: --</div>
-              <div class="hud-pill" id="hudTimestamp">T: 0.00s</div>
-              <button class="hud-pill hud-action-btn" id="btnPinFrameToMap" type="button" title="Send current frame to 2D canvas background">
-                📷 Pin Frame to 2D Map
-              </button>
+        <!-- 1. LEFT: Live Video Feed & Recorded Video Player with Tactical Overlay -->
+        <section class="panel panel-video" id="panelVideo">
+          <div class="panel-header">
+            <div class="title-badge">
+              <div class="indicator"></div>
+              <span>Aerial Gimbal Payload</span>
+            </div>
+            <div class="canvas-toolbar" style="position:static; padding:0; background:transparent; border:none;">
+              <button class="tool-btn active" id="btnModeLive" type="button">Live Stream</button>
+              <button class="tool-btn" id="btnModePlayer" type="button">Annotated Player</button>
             </div>
           </div>
-        </div>
-      </section>
 
-      <!-- CENTER: 2D Top-Down Interactive Trajectory Canvas & Analytical Layers -->
-      <section class="panel">
-        <div class="panel-header">
-          <div class="title-badge">
-            <div class="indicator" style="background:var(--accent-lime)"></div>
-            <span>2D Spatial Trajectory & Analytics Layers</span>
+          <!-- Video Player Selector Bar -->
+          <div id="playerSelectorBar" style="display:none; background:rgba(9, 13, 22, 0.95); border-bottom:1px solid var(--border-subtle); padding:4px 10px; font-family:var(--font-mono); font-size:11px; align-items:center; justify-content:space-between; gap:8px;">
+            <span style="color:var(--text-muted); font-size:10px;">RECORDED RUN:</span>
+            <select id="selectOutputVideo" style="flex:1; background:var(--bg-darkest); border:1px solid var(--border-active); color:var(--text-primary); padding:3px 6px; font-size:10.5px; border-radius:3px;">
+              <option value="">Loading recorded outputs...</option>
+            </select>
+            <button class="tool-btn" id="btnRefreshOutputs" type="button" title="Refresh outputs">↻</button>
           </div>
-          <div class="canvas-toolbar" style="position:static; padding:0; background:transparent; border:none;">
-            <button class="tool-btn" id="btnAutoFit" type="button">Auto-Fit</button>
-            <button class="tool-btn" id="btnReloadTrajectories" type="button">Sync Trails</button>
-            <button class="tool-btn" id="btnResetView" type="button">Reset</button>
-          </div>
-        </div>
 
-        <!-- Analytical Layer Ribbon -->
-        <div class="layer-control-bar">
-          <div class="layer-group">
-            <span class="layer-group-title">LAYERS:</span>
-            <button class="layer-chip active" id="layerToggleVideo" type="button">📷 Video Overlay</button>
-            <div class="opacity-slider-container" id="videoOpacityContainer">
-              <span style="font-size:9px; color:var(--text-muted)">Opacity:</span>
-              <input type="range" id="sliderVideoOpacity" min="0" max="1" step="0.05" value="0.55" style="width:50px;">
+          <div class="panel-content">
+            <div class="video-viewport" id="videoViewport">
+              <!-- Live Stream Canvas -->
+              <img id="liveVideoCanvas" alt="Live Drone Teleoperation Feed" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' viewBox='0 0 640 480'><rect fill='%23090d16' width='640' height='480'/><text fill='%2364748b' font-family='monospace' font-size='14' x='50%' y='50%' dominant-baseline='middle' text-anchor='middle'>WAITING FOR VIDEO STREAM OR PROCESS PIPELINE...</text></svg>">
+
+              <!-- Recorded Annotated Video Player -->
+              <video id="annotatedVideoPlayer" controls playsinline style="display:none; width:100%; height:100%; object-fit:contain; background:#000;"></video>
+
+              <!-- Video Overlay HUD -->
+              <div class="video-overlay-hud">
+                <div class="hud-pill" id="hudFrameIdx">FRAME: --</div>
+                <div class="hud-pill" id="hudTimestamp">T: 0.00s</div>
+                <button class="hud-pill hud-action-btn" id="btnPinFrameToMap" type="button" title="Send current frame to 2D canvas background">
+                  📷 Pin Frame to 2D Map
+                </button>
+              </div>
             </div>
-            <button class="layer-chip active" id="layerToggleTrails" type="button">📈 Trails</button>
-            <button class="layer-chip" id="layerToggleHeatmap" type="button">🔥 Density Heatmap</button>
-            <button class="layer-chip" id="layerToggleSpeed" type="button">⚡ Speed Colors</button>
-            <button class="layer-chip" id="layerToggleConflicts" type="button">⚠️ Conflicts</button>
-            <button class="layer-chip active" id="layerToggleArrows" type="button">➡️ Vectors</button>
           </div>
+        </section>
 
-          <!-- Class Filter Badges -->
-          <div class="layer-group class-filter-group">
-            <span class="layer-group-title">FILTER:</span>
-            <button class="class-chip active" data-class="ALL" type="button">ALL</button>
-            <button class="class-chip" data-class="CAR" type="button">CAR</button>
-            <button class="class-chip" data-class="MOTORCYCLE" type="button">BIKE</button>
-            <button class="class-chip" data-class="BUS" type="button">BUS</button>
-            <button class="class-chip" data-class="HGV" type="button">HGV</button>
-            <button class="class-chip" data-class="PERSON" type="button">PEDESTRIAN</button>
-          </div>
+        <!-- Vertical Resizer 1 (between Video and Map) -->
+        <div class="gutter gutter-col" id="gutterCol1" title="Drag horizontally to resize video and map panels">
+          <div class="gutter-handle"></div>
         </div>
 
-        <div class="panel-content">
-          <div class="trajectory-canvas-container">
-            <canvas id="trajectoryMapCanvas"></canvas>
+        <!-- 2. CENTER: 2D Top-Down Interactive Trajectory Canvas & Analytical Layers -->
+        <section class="panel panel-map" id="panelMap">
+          <div class="panel-header">
+            <div class="title-badge">
+              <div class="indicator" style="background:var(--accent-lime)"></div>
+              <span>2D Spatial Trajectory & Analytics Layers</span>
+            </div>
+            <div class="canvas-toolbar" style="position:static; padding:0; background:transparent; border:none;">
+              <button class="tool-btn" id="btnAutoFit" type="button">Auto-Fit</button>
+              <button class="tool-btn" id="btnReloadTrajectories" type="button">Sync Trails</button>
+              <button class="tool-btn" id="btnResetView" type="button">Reset</button>
+            </div>
           </div>
-        </div>
-      </section>
 
-      <!-- RIGHT: Telemetry, Visual Analytics, and Tabular Analytics Sidebar -->
-      <aside class="panel sidebar-panel" style="display:flex; flex-direction:column; overflow:hidden;">
+          <!-- Analytical Layer Ribbon -->
+          <div class="layer-control-bar">
+            <div class="layer-group">
+              <span class="layer-group-title">LAYERS:</span>
+              <button class="layer-chip active" id="layerToggleVideo" type="button">📷 Video Overlay</button>
+              <div class="opacity-slider-container" id="videoOpacityContainer">
+                <span style="font-size:9px; color:var(--text-muted)">Opacity:</span>
+                <input type="range" id="sliderVideoOpacity" min="0" max="1" step="0.05" value="0.55" style="width:50px;">
+              </div>
+              <button class="layer-chip active" id="layerToggleTrails" type="button">📈 Trails</button>
+              <button class="layer-chip" id="layerToggleHeatmap" type="button">🔥 Density Heatmap</button>
+              <button class="layer-chip" id="layerToggleSpeed" type="button">⚡ Speed Colors</button>
+              <button class="layer-chip" id="layerToggleConflicts" type="button">⚠️ Conflicts</button>
+              <button class="layer-chip active" id="layerToggleArrows" type="button">➡️ Vectors</button>
+            </div>
+
+            <!-- Class Filter Badges -->
+            <div class="layer-group class-filter-group">
+              <span class="layer-group-title">FILTER:</span>
+              <button class="class-chip active" data-class="ALL" type="button">ALL</button>
+              <button class="class-chip" data-class="CAR" type="button">CAR</button>
+              <button class="class-chip" data-class="MOTORCYCLE" type="button">BIKE</button>
+              <button class="class-chip" data-class="BUS" type="button">BUS</button>
+              <button class="class-chip" data-class="HGV" type="button">HGV</button>
+              <button class="class-chip" data-class="PERSON" type="button">PEDESTRIAN</button>
+            </div>
+          </div>
+
+          <div class="panel-content">
+            <div class="trajectory-canvas-container">
+              <canvas id="trajectoryMapCanvas"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <!-- Vertical Resizer 2 (between Map and Right Sidebar) -->
+        <div class="gutter gutter-col" id="gutterCol2" title="Drag horizontally to resize analytics panel">
+          <div class="gutter-handle"></div>
+        </div>
+
+        <!-- 3. RIGHT: Telemetry, Visual Analytics, and Tabular Analytics Sidebar -->
+        <aside class="panel sidebar-panel" id="panelSidebar" style="display:flex; flex-direction:column; overflow:hidden;">
         
         <!-- Sidebar Navigation Tabs -->
         <div class="panel-header" style="justify-content: space-between; padding: 0 6px;">
@@ -494,8 +507,15 @@
 
       </aside>
 
+      </div><!-- /.workspace-top-row -->
+
+      <!-- Horizontal Resizer (between Top Panels and Bottom Table) -->
+      <div class="gutter gutter-row" id="gutterRow" title="Drag vertically to resize bottom table height">
+        <div class="gutter-handle"></div>
+      </div>
+
       <!-- BOTTOM: Persistent Trajectory Table (Full Width) -->
-      <section class="panel bottom-panel">
+      <section class="panel bottom-panel" id="panelBottom">
         <div class="panel-header">
           <div class="title-badge">
             <div class="indicator" style="background:var(--accent-blue)"></div>
