@@ -450,6 +450,88 @@ async def get_analytics_summary():
     }
 
 
+@router.get("/analytics/level3")
+async def get_level3_analytics(
+    time_range: str = "all",
+    lane_id: Optional[str] = None,
+    movement: Optional[str] = None,
+    origin: Optional[str] = None,
+    destination: Optional[str] = None,
+):
+    """
+    Returns comprehensive Level 3 Aggregate Traffic Intelligence metrics.
+    Computes KPIs, Flow Timeline, 12 Intersection Movements, Lane Volumes,
+    Modal Split, Queue Evolution, Origin-Destination Matrix, and Flow-Density Relationship.
+    """
+    from ..analytics.level3_engine import Level3AnalyticsEngine
+    from ..perception.classification.taxonomy import RoadUserClass
+    from ..trajectories.models import TrackTrajectory, TrajectoryPoint
+
+    # Retrieve all active or persistent trajectories from memory or database
+    all_trajs: List[TrackTrajectory] = []
+    for job in JOB_REGISTRY.values():
+        if hasattr(job, "pipeline") and job.pipeline and hasattr(job.pipeline, "trajectory_engine"):
+            all_trajs = job.pipeline.trajectory_engine.get_all_trajectories()
+            if all_trajs:
+                break
+
+    if not all_trajs:
+        tracks_data = storage.get_all_trajectories_with_trails()
+        for td in tracks_data:
+            from ..perception.classification.taxonomy import normalize_class
+            norm_res = normalize_class(td["class"], td["confidence"], td.get("bbox"))
+            norm_cls = norm_res.normalized_class if norm_res else RoadUserClass.CAR
+
+            traj = TrackTrajectory(
+                track_id=td["id"],
+                raw_class=td["class"],
+                normalized_class=norm_cls,
+                confidence=td["confidence"],
+                first_seen=0.0,
+                last_seen=td.get("duration", 0.0),
+                first_frame=0,
+                last_frame=td.get("total_frames", 1),
+                total_frames=td.get("total_frames", 1),
+                is_active=False,
+                is_uncertain=False,
+                current_bbox=td["bbox"],
+                current_centroid=td["centroid"],
+                current_speed=td["speed"],
+                current_heading=td["heading"],
+                fine_grained_class=td.get("fine_grained_class", "Car"),
+                current_velocity_kmh=td.get("velocity_kmh"),
+                current_velocity_mps=td.get("velocity_mps"),
+                current_acceleration_mps2=td.get("accel_mps2"),
+                is_calibrated=td.get("velocity_kmh") is not None,
+            )
+            for pt in td.get("trail", []):
+                traj.history.append(TrajectoryPoint(
+                    frame_index=0,
+                    timestamp=0.0,
+                    bbox=td["bbox"],
+                    centroid=(pt[0], pt[1]),
+                    velocity=(0.0, 0.0),
+                    speed_estimate=td["speed"],
+                    heading=td["heading"],
+                    confidence=td["confidence"],
+                    velocity_kmh=td.get("velocity_kmh"),
+                    velocity_mps=td.get("velocity_mps"),
+                    acceleration_mps2=td.get("accel_mps2"),
+                ))
+            all_trajs.append(traj)
+
+    engine = Level3AnalyticsEngine()
+    result = engine.compute_macro_analytics(
+        trajectories=all_trajs,
+        time_range=time_range,
+        lane_filter=lane_id,
+        movement_filter=movement,
+        origin_filter=origin,
+        dest_filter=destination,
+    )
+    return result
+
+
 @router.get("/analytics/density")
 async def get_density_metric():
     """Returns spatial density measurement."""

@@ -8,6 +8,15 @@ let activeTracksMap = new Map();
 let currentJobId = null;
 let pollingInterval = null;
 
+// Level Navigation & Filter State
+let currentActiveLevel = 3; // Default to Level 3 Aggregate mode
+let l3TimeRange = "all";
+let l3LaneFilter = null;
+let l3MovementFilter = null;
+let l3OriginFilter = null;
+let l3DestFilter = null;
+let lastL3RefreshTime = 0;
+
 // Initialize when DOM loads
 document.addEventListener("DOMContentLoaded", () => {
   visualizer = new TrajectoryMapVisualizer("trajectoryMapCanvas");
@@ -18,9 +27,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
   connectWebSocket();
   initEventListeners();
+  initLevel3UI();
   loadInitialTelemetry();
   loadCalibrationStatus();
   loadSessionTrajectories();
+  refreshLevel3Analytics();
 });
 
 function connectWebSocket() {
@@ -77,6 +88,14 @@ function handleLiveFrame(data) {
   if (data.tracks) {
     visualizer.updateTracks(data.tracks);
     updateTrackState(data.tracks, data.total_unique);
+
+    if (currentActiveLevel === 3) {
+      const now = Date.now();
+      if (now - lastL3RefreshTime > 2500) {
+        lastL3RefreshTime = now;
+        refreshLevel3Analytics();
+      }
+    }
   }
 }
 
@@ -795,3 +814,644 @@ async function loadCalibrationStatus() {
     }
   } catch (e) {}
 }
+
+/* ==============================================================================
+   LEVEL 3 AGGREGATE TRAFFIC INTELLIGENCE CONTROLLER & CHART RENDERERS
+============================================================================== */
+
+function initLevel3UI() {
+  const btnL1 = document.getElementById("btnNavLevel1");
+  const btnL2 = document.getElementById("btnNavLevel2");
+  const btnL3 = document.getElementById("btnNavLevel3");
+
+  if (btnL1) btnL1.onclick = () => setLevelMode(1);
+  if (btnL2) btnL2.onclick = () => setLevelMode(2);
+  if (btnL3) btnL3.onclick = () => setLevelMode(3);
+
+  // Time Range Chips
+  document.querySelectorAll(".time-chip").forEach(chip => {
+    chip.onclick = () => {
+      document.querySelectorAll(".time-chip").forEach(c => c.classList.remove("active"));
+      chip.classList.add("active");
+      l3TimeRange = chip.getAttribute("data-range") || "all";
+      refreshLevel3Analytics();
+    };
+  });
+
+  // Clear Filter Button
+  const btnClearFilter = document.getElementById("btnClearL3Filter");
+  if (btnClearFilter) {
+    btnClearFilter.onclick = () => clearL3Filter();
+  }
+
+  // Refresh Analytics Button
+  const btnRefresh = document.getElementById("btnRefreshL3");
+  if (btnRefresh) {
+    btnRefresh.onclick = () => refreshLevel3Analytics();
+  }
+}
+
+function setLevelMode(level) {
+  currentActiveLevel = level;
+  const btnL1 = document.getElementById("btnNavLevel1");
+  const btnL2 = document.getElementById("btnNavLevel2");
+  const btnL3 = document.getElementById("btnNavLevel3");
+  const v12 = document.getElementById("viewLevel12");
+  const v3 = document.getElementById("viewLevel3");
+
+  btnL1.classList.toggle("active", level === 1);
+  btnL2.classList.toggle("active", level === 2);
+  btnL3.classList.toggle("active", level === 3);
+
+  if (level === 1 || level === 2) {
+    if (v12) v12.style.display = "block";
+    if (v3) v3.style.display = "none";
+  } else {
+    if (v12) v12.style.display = "none";
+    if (v3) v3.style.display = "flex";
+    refreshLevel3Analytics();
+  }
+}
+
+function applyL3Filter(filterType, filterValue, labelText) {
+  l3LaneFilter = (filterType === "lane") ? filterValue : null;
+  l3MovementFilter = (filterType === "movement") ? filterValue : null;
+  if (filterType === "od") {
+    l3OriginFilter = filterValue.origin;
+    l3DestFilter = filterValue.dest;
+  } else {
+    l3OriginFilter = null;
+    l3DestFilter = null;
+  }
+
+  const badge = document.getElementById("l3ActiveFilterBadge");
+  const textEl = document.getElementById("l3FilterText");
+  if (badge && textEl) {
+    badge.style.display = "inline-flex";
+    textEl.textContent = labelText || `${filterType.toUpperCase()}: ${filterValue}`;
+  }
+
+  if (visualizer) {
+    visualizer.setHighlightFilter({ type: filterType, value: filterValue });
+  }
+
+  refreshLevel3Analytics();
+}
+
+function clearL3Filter() {
+  l3LaneFilter = null;
+  l3MovementFilter = null;
+  l3OriginFilter = null;
+  l3DestFilter = null;
+
+  const badge = document.getElementById("l3ActiveFilterBadge");
+  if (badge) badge.style.display = "none";
+
+  if (visualizer) {
+    visualizer.clearHighlightFilter();
+  }
+
+  refreshLevel3Analytics();
+}
+
+async function refreshLevel3Analytics() {
+  try {
+    const params = new URLSearchParams();
+    if (l3TimeRange) params.append("time_range", l3TimeRange);
+    if (l3LaneFilter) params.append("lane_id", l3LaneFilter);
+    if (l3MovementFilter) params.append("movement", l3MovementFilter);
+    if (l3OriginFilter) params.append("origin", l3OriginFilter);
+    if (l3DestFilter) params.append("destination", l3DestFilter);
+
+    const res = await fetch(`/api/analytics/level3?${params.toString()}`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    // 1. Update Top 6 KPI Cards
+    if (data.kpis) {
+      document.getElementById("kpiTotalFlow").textContent = data.kpis.total_flow_vpm.toFixed(1);
+      document.getElementById("kpiAvgSpeed").textContent = data.kpis.average_speed_kmh.toFixed(1);
+      document.getElementById("kpiDensity").textContent = data.kpis.traffic_density_vpk.toFixed(1);
+      document.getElementById("kpiOccupancy").textContent = `${data.kpis.road_occupancy_pct.toFixed(1)}%`;
+      document.getElementById("kpiQueue").textContent = data.kpis.active_queue_meters.toFixed(1);
+      document.getElementById("kpiPeakFlow").textContent = data.kpis.peak_flow_vpm.toFixed(1);
+    }
+
+    // 2. Render 8 Visual Analytics Grid Modules
+    renderFlowTimelineChart(data.flow_timeline);
+    renderIntersectionMovements(data.movements);
+    renderLaneVolumes(data.lane_volumes);
+    renderModalSplit(data.modal_split);
+    renderQueueEvolution(data.queue_evolution);
+    renderOdMatrix(data.od_matrix);
+    renderFlowDensityScatter(data.flow_density);
+
+  } catch (err) {
+    console.warn("Failed to refresh Level 3 analytics:", err);
+  }
+}
+
+/* ── 1. Traffic Flow Timeline Chart ────────────────────────────────────────── */
+function renderFlowTimelineChart(flowData) {
+  const canvas = document.getElementById("flowTimelineCanvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width || 450;
+  canvas.height = rect.height || 140;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const bins = (flowData && flowData.bins) ? flowData.bins : [];
+  if (bins.length === 0) {
+    ctx.fillStyle = "#64748B";
+    ctx.font = "11px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("No trajectory observations in selected temporal window", w / 2, h / 2);
+    return;
+  }
+
+  const padLeft = 40;
+  const padBottom = 24;
+  const padTop = 16;
+  const padRight = 16;
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+
+  const maxFlow = Math.max(10.0, ...bins.map(b => b.flow_vpm * 1.25));
+
+  // Background Grid Lines
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.08)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const yVal = maxFlow * (i / 3);
+    const py = padTop + plotH - (plotH * (i / 3));
+    ctx.beginPath();
+    ctx.moveTo(padLeft, py);
+    ctx.lineTo(padLeft + plotW, py);
+    ctx.stroke();
+
+    ctx.fillStyle = "#64748B";
+    ctx.font = "9px monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(Math.round(yVal), padLeft - 6, py + 3);
+  }
+
+  // Draw Stacked Area Curves
+  const stepX = bins.length > 1 ? plotW / (bins.length - 1) : plotW;
+
+  // Draw Area for Total Flow
+  ctx.beginPath();
+  bins.forEach((b, i) => {
+    const px = padLeft + i * stepX;
+    const py = padTop + plotH - (plotH * (b.flow_vpm / maxFlow));
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.lineTo(padLeft + (bins.length - 1) * stepX, padTop + plotH);
+  ctx.lineTo(padLeft, padTop + plotH);
+  ctx.closePath();
+
+  const areaGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+  areaGrad.addColorStop(0, "rgba(56, 189, 248, 0.45)");
+  areaGrad.addColorStop(1, "rgba(56, 189, 248, 0.02)");
+  ctx.fillStyle = areaGrad;
+  ctx.fill();
+
+  // Draw Main Line
+  ctx.beginPath();
+  bins.forEach((b, i) => {
+    const px = padLeft + i * stepX;
+    const py = padTop + plotH - (plotH * (b.flow_vpm / maxFlow));
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.strokeStyle = "#38BDF8";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Annotate Peak Flow Point
+  let peakIdx = 0;
+  let peakVal = 0;
+  bins.forEach((b, i) => {
+    if (b.flow_vpm > peakVal) {
+      peakVal = b.flow_vpm;
+      peakIdx = i;
+    }
+  });
+
+  if (peakVal > 0) {
+    const peakX = padLeft + peakIdx * stepX;
+    const peakY = padTop + plotH - (plotH * (peakVal / maxFlow));
+
+    ctx.fillStyle = "#FB923C";
+    ctx.shadowColor = "#FB923C";
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(peakX, peakY, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = "#FB923C";
+    ctx.font = "bold 9px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`PEAK: ${peakVal.toFixed(1)} vpm`, peakX, Math.max(12, peakY - 8));
+  }
+
+  // X Axis Labels
+  ctx.fillStyle = "#64748B";
+  ctx.font = "9px monospace";
+  ctx.textAlign = "center";
+  const stepLabel = Math.max(1, Math.floor(bins.length / 5));
+  bins.forEach((b, i) => {
+    if (i % stepLabel === 0 || i === bins.length - 1) {
+      const px = padLeft + i * stepX;
+      ctx.fillText(b.label, px, padTop + plotH + 16);
+    }
+  });
+}
+
+/* ── 2. Intersection Movement Flow ─────────────────────────────────────────── */
+function renderIntersectionMovements(movements) {
+  const svg = document.getElementById("intersectionSvg");
+  const list = document.getElementById("movementListGrid");
+  if (!svg || !list) return;
+
+  svg.innerHTML = "";
+  list.innerHTML = "";
+
+  if (!movements || movements.length === 0) {
+    svg.innerHTML = '<text x="100" y="100" fill="#64748B" font-size="10" text-anchor="middle" font-family="monospace">No Data</text>';
+    return;
+  }
+
+  // Draw Intersection Geometry in SVG
+  const center = 100;
+  const armLen = 80;
+
+  // Background road cross
+  svg.innerHTML += `
+    <rect x="75" y="10" width="50" height="180" fill="rgba(19, 31, 55, 0.4)" stroke="rgba(56,189,248,0.15)" rx="4"/>
+    <rect x="10" y="75" width="180" height="50" fill="rgba(19, 31, 55, 0.4)" stroke="rgba(56,189,248,0.15)" rx="4"/>
+    <circle cx="100" cy="100" r="30" fill="none" stroke="rgba(0,229,255,0.2)" stroke-dasharray="3,3"/>
+    <text x="100" y="24" fill="#64748B" font-size="9" font-family="monospace" text-anchor="middle" font-weight="bold">N</text>
+    <text x="100" y="186" fill="#64748B" font-size="9" font-family="monospace" text-anchor="middle" font-weight="bold">S</text>
+    <text x="22" y="103" fill="#64748B" font-size="9" font-family="monospace" text-anchor="middle" font-weight="bold">W</text>
+    <text x="178" y="103" fill="#64748B" font-size="9" font-family="monospace" text-anchor="middle" font-weight="bold">E</text>
+  `;
+
+  // Draw movement list items and SVG vectors
+  movements.forEach(m => {
+    // Populate list items
+    const item = document.createElement("div");
+    item.className = "movement-item";
+    if (l3MovementFilter === m.movement) item.classList.add("active");
+    item.onclick = () => {
+      if (l3MovementFilter === m.movement) clearL3Filter();
+      else applyL3Filter("movement", m.movement, `MOVEMENT: ${m.movement}`);
+    };
+
+    item.innerHTML = `
+      <span style="color:var(--text-primary); font-weight:600;">${m.movement}</span>
+      <span class="badge" style="background:rgba(56,189,248,0.15); color:var(--accent-cyan); font-size:9px;">${m.count} (${m.percentage}%)</span>
+    `;
+    list.appendChild(item);
+  });
+}
+
+/* ── 3. Lane Volume Breakdown ──────────────────────────────────────────────── */
+function renderLaneVolumes(laneData) {
+  const container = document.getElementById("laneVolumeList");
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (!laneData || laneData.length === 0) {
+    container.innerHTML = '<div style="color:var(--text-muted); font-size:11px; text-align:center; padding:20px;">No lane configurations available</div>';
+    return;
+  }
+
+  const maxVol = Math.max(1, ...laneData.map(l => l.volume));
+
+  laneData.forEach(lane => {
+    const item = document.createElement("div");
+    item.className = "lane-bar-item";
+    if (l3LaneFilter === lane.lane_id) item.classList.add("active");
+
+    item.onclick = () => {
+      if (l3LaneFilter === lane.lane_id) clearL3Filter();
+      else applyL3Filter("lane", lane.lane_id, `LANE: ${lane.lane_id}`);
+    };
+
+    const pct = Math.round((lane.volume / maxVol) * 100);
+    const split = lane.split || { cars: 0, motorcycles: 0, heavy: 0, other: 0 };
+    const sTotal = lane.volume || 1;
+
+    item.innerHTML = `
+      <div class="lane-bar-header">
+        <span style="font-weight:700; color:var(--accent-cyan);">${lane.lane_id}</span>
+        <span><strong style="color:var(--accent-lime);">${lane.volume} veh</strong> (${lane.flow_vpm} vpm)</span>
+      </div>
+      <div class="lane-bar-track" style="width:100%;">
+        <div class="lane-bar-fill" style="width:${pct}%; display:flex; border-radius:3px; overflow:hidden;">
+          <div style="width:${(split.cars / sTotal) * 100}%; background:#38BDF8;" title="Cars: ${split.cars}"></div>
+          <div style="width:${(split.motorcycles / sTotal) * 100}%; background:#C8F23A;" title="Bikes: ${split.motorcycles}"></div>
+          <div style="width:${(split.heavy / sTotal) * 100}%; background:#F43F5E;" title="Heavy: ${split.heavy}"></div>
+          <div style="width:${(split.other / sTotal) * 100}%; background:#A855F7;" title="Other: ${split.other}"></div>
+        </div>
+      </div>
+    `;
+    container.appendChild(item);
+  });
+}
+
+/* ── 4. Modal Split Donut & List ───────────────────────────────────────────── */
+function renderModalSplit(splitData) {
+  const canvas = document.getElementById("modalDonutCanvas");
+  const list = document.getElementById("modalSplitList");
+  if (!canvas || !list) return;
+
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  list.innerHTML = "";
+
+  if (!splitData || splitData.length === 0) {
+    list.innerHTML = '<span style="color:var(--text-muted);">No data</span>';
+    return;
+  }
+
+  const cx = canvas.width / 2;
+  const cy = canvas.height / 2;
+  const radius = 34;
+  const innerRadius = 22;
+
+  let startAngle = -Math.PI / 2;
+  const total = splitData.reduce((acc, s) => acc + s.count, 0) || 1;
+
+  splitData.forEach(s => {
+    const sliceAngle = (s.count / total) * Math.PI * 2;
+    const endAngle = startAngle + sliceAngle;
+
+    if (s.count > 0) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, startAngle, endAngle);
+      ctx.arc(cx, cy, innerRadius, endAngle, startAngle, true);
+      ctx.closePath();
+      ctx.fillStyle = s.color || "#38BDF8";
+      ctx.fill();
+    }
+
+    startAngle = endAngle;
+
+    // List item
+    const item = document.createElement("div");
+    item.style.display = "flex";
+    item.style.alignItems = "center";
+    item.style.justifyContent = "space-between";
+    item.innerHTML = `
+      <div style="display:flex; align-items:center; gap:6px;">
+        <div style="width:8px; height:8px; background:${s.color}; border-radius:2px;"></div>
+        <span style="color:var(--text-primary); font-family:var(--font-mono);">${s.category}</span>
+      </div>
+      <span style="font-family:var(--font-mono); color:var(--text-secondary); font-weight:600;">${s.count} (${s.percentage}%)</span>
+    `;
+    list.appendChild(item);
+  });
+}
+
+/* ── 5. Queue Evolution Time-Series ────────────────────────────────────────── */
+function renderQueueEvolution(queueData) {
+  const canvas = document.getElementById("queueEvolutionCanvas");
+  const meta = document.getElementById("queueMetaStats");
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d");
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width || 300;
+  canvas.height = rect.height || 130;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const points = (queueData && queueData.points) ? queueData.points : [];
+  const maxQ = (queueData && queueData.max_queue_m) ? queueData.max_queue_m : 0;
+  if (meta) meta.textContent = `MAX: ${maxQ.toFixed(1)}m`;
+
+  if (points.length === 0) {
+    ctx.fillStyle = "#64748B";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("No queue observations recorded", w / 2, h / 2);
+    return;
+  }
+
+  const padLeft = 36;
+  const padBottom = 20;
+  const padTop = 14;
+  const padRight = 14;
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+  const maxVal = Math.max(20.0, maxQ * 1.25);
+
+  // Background Grid
+  ctx.strokeStyle = "rgba(244, 63, 94, 0.08)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 2; i++) {
+    const yVal = maxVal * (i / 2);
+    const py = padTop + plotH - (plotH * (i / 2));
+    ctx.beginPath();
+    ctx.moveTo(padLeft, py);
+    ctx.lineTo(padLeft + plotW, py);
+    ctx.stroke();
+
+    ctx.fillStyle = "#64748B";
+    ctx.font = "9px monospace";
+    ctx.textAlign = "right";
+    ctx.fillText(`${Math.round(yVal)}m`, padLeft - 4, py + 3);
+  }
+
+  const stepX = points.length > 1 ? plotW / (points.length - 1) : plotW;
+
+  // Queue Area Fill
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const px = padLeft + i * stepX;
+    const py = padTop + plotH - (plotH * (p.queue_meters / maxVal));
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.lineTo(padLeft + (points.length - 1) * stepX, padTop + plotH);
+  ctx.lineTo(padLeft, padTop + plotH);
+  ctx.closePath();
+
+  const qGrad = ctx.createLinearGradient(0, padTop, 0, padTop + plotH);
+  qGrad.addColorStop(0, "rgba(244, 63, 94, 0.4)");
+  qGrad.addColorStop(1, "rgba(244, 63, 94, 0.02)");
+  ctx.fillStyle = qGrad;
+  ctx.fill();
+
+  // Queue Line
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const px = padLeft + i * stepX;
+    const py = padTop + plotH - (plotH * (p.queue_meters / maxVal));
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  });
+  ctx.strokeStyle = "#F43F5E";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+/* ── 6. Origin–Destination Matrix ──────────────────────────────────────────── */
+function renderOdMatrix(odData) {
+  const table = document.getElementById("odMatrixTable");
+  if (!table) return;
+  table.innerHTML = "";
+
+  if (!odData || odData.length === 0) {
+    table.innerHTML = '<tr><td style="color:var(--text-muted);">No OD movements recorded</td></tr>';
+    return;
+  }
+
+  const cardinals = ["N", "S", "E", "W"];
+
+  // Table Header
+  let thead = "<tr><th>O \\ D</th>";
+  cardinals.forEach(c => {
+    thead += `<th>${c}</th>`;
+  });
+  thead += "</tr>";
+  table.innerHTML = thead;
+
+  // Find max count for dynamic cell coloring
+  let maxCount = 1;
+  odData.forEach(row => {
+    cardinals.forEach(dest => {
+      const cell = row.destinations[dest];
+      if (cell && cell.count > maxCount) maxCount = cell.count;
+    });
+  });
+
+  // Table Rows
+  odData.forEach(row => {
+    const tr = document.createElement("tr");
+    let rowHtml = `<th style="background:rgba(19,31,55,0.8);">${row.origin}</th>`;
+
+    cardinals.forEach(dest => {
+      const cell = row.destinations[dest];
+      const count = cell ? cell.count : 0;
+      const isDiag = (row.origin === dest);
+      const isSelected = (l3OriginFilter === row.origin && l3DestFilter === dest);
+
+      const alpha = isDiag ? 0.05 : Math.max(0.1, (count / maxCount) * 0.7);
+      const bgStyle = isDiag ? "background:rgba(255,255,255,0.02); color:#64748B;" : `background:rgba(56,189,248,${alpha}); color:var(--text-primary); font-weight:bold;`;
+      const cellClass = `od-cell ${isSelected ? 'active' : ''}`;
+
+      rowHtml += `<td class="${cellClass}" data-orig="${row.origin}" data-dest="${dest}" style="${bgStyle}">${isDiag ? '—' : count}</td>`;
+    });
+
+    tr.innerHTML = rowHtml;
+    table.appendChild(tr);
+  });
+
+  // Add click handler to OD cells
+  table.querySelectorAll(".od-cell").forEach(cell => {
+    cell.onclick = () => {
+      const orig = cell.getAttribute("data-orig");
+      const dest = cell.getAttribute("data-dest");
+      if (orig === dest) return;
+
+      if (l3OriginFilter === orig && l3DestFilter === dest) {
+        clearL3Filter();
+      } else {
+        applyL3Filter("od", { origin: orig, dest: dest }, `OD CORRIDOR: ${orig} → ${dest}`);
+      }
+    };
+  });
+}
+
+/* ── 7. Flow-Density Fundamental Relationship ──────────────────────────────── */
+function renderFlowDensityScatter(fdData) {
+  const canvas = document.getElementById("flowDensityCanvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width || 300;
+  canvas.height = rect.height || 130;
+
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+
+  const points = (fdData && fdData.points) ? fdData.points : [];
+  if (points.length === 0) {
+    ctx.fillStyle = "#64748B";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("No flow-density observations recorded", w / 2, h / 2);
+    return;
+  }
+
+  const padLeft = 36;
+  const padBottom = 20;
+  const padTop = 14;
+  const padRight = 14;
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+
+  const maxDens = 100.0;
+  const maxFlow = Math.max(50.0, ...points.map(p => p.flow_vpm * 1.2));
+
+  // Background Regime Zones
+  // Free Flow Zone (0 to 35 veh/km)
+  const freeFlowW = plotW * (35.0 / maxDens);
+  ctx.fillStyle = "rgba(200, 242, 58, 0.06)";
+  ctx.fillRect(padLeft, padTop, freeFlowW, plotH);
+
+  // High Flow Zone (35 to 70 veh/km)
+  const highFlowW = plotW * (35.0 / maxDens);
+  ctx.fillStyle = "rgba(56, 189, 248, 0.06)";
+  ctx.fillRect(padLeft + freeFlowW, padTop, highFlowW, plotH);
+
+  // Congested Zone (70 to 100 veh/km)
+  const congW = plotW - (freeFlowW + highFlowW);
+  ctx.fillStyle = "rgba(244, 63, 94, 0.06)";
+  ctx.fillRect(padLeft + freeFlowW + highFlowW, padTop, congW, plotH);
+
+  // Axis lines
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.2)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padLeft, padTop);
+  ctx.lineTo(padLeft, padTop + plotH);
+  ctx.lineTo(padLeft + plotW, padTop + plotH);
+  ctx.stroke();
+
+  // Plot Scatter Points
+  points.forEach(p => {
+    const px = padLeft + Math.min(plotW, plotW * (p.density_vpk / maxDens));
+    const py = padTop + plotH - Math.min(plotH, plotH * (p.flow_vpm / maxFlow));
+
+    let dotColor = "#C8F23A"; // Free Flow
+    if (p.regime === "HIGH_FLOW") dotColor = "#38BDF8";
+    else if (p.regime === "CONGESTED") dotColor = "#F43F5E";
+
+    ctx.fillStyle = dotColor;
+    ctx.shadowColor = dotColor;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ctx.arc(px, py, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  });
+
+  // Labels
+  ctx.fillStyle = "#64748B";
+  ctx.font = "8.5px monospace";
+  ctx.textAlign = "center";
+  ctx.fillText("DENSITY (veh/km)", padLeft + plotW / 2, padTop + plotH + 16);
+}
+

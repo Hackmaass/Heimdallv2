@@ -20,7 +20,13 @@
           <span>HEIMDALL<span style="color:var(--accent-cyan)">v2</span></span>
         </div>
         <span class="badge badge-cyan" id="wsStatusText">CONNECTING...</span>
-        <span class="badge badge-lime">LEVEL 1: TRACK & DETECT</span>
+        
+        <!-- Level Navigation Switcher -->
+        <div class="level-nav-group" id="levelNavGroup">
+          <button class="level-btn" id="btnNavLevel1" type="button">LEVEL 1: TRACK</button>
+          <button class="level-btn" id="btnNavLevel2" type="button">LEVEL 2: OBJECT</button>
+          <button class="level-btn active" id="btnNavLevel3" type="button">LEVEL 3: AGGREGATE</button>
+        </div>
       </div>
 
       <div class="header-status-metrics">
@@ -278,8 +284,8 @@
 
       </aside>
 
-      <!-- BOTTOM: Persistent Trajectory Table -->
-      <section class="panel bottom-panel">
+      <!-- BOTTOM: Level 1/2 Persistent Track Table OR Level 3 Aggregate Analytics -->
+      <section class="panel bottom-panel" id="viewLevel12" style="display:none;">
         <div class="panel-header">
           <div class="title-badge">
             <div class="indicator" style="background:var(--accent-blue)"></div>
@@ -311,6 +317,175 @@
             </tbody>
           </table>
         </div>
+      </section>
+
+      <!-- LEVEL 3 AGGREGATE TRAFFIC INTELLIGENCE DASHBOARD -->
+      <section class="panel bottom-panel" id="viewLevel3" style="display:flex; flex-direction:column; overflow-y:auto;">
+        
+        <!-- Level 3 Header & Common Time Filter Bar -->
+        <div class="l3-dashboard-header">
+          <div class="title-badge">
+            <div class="indicator" style="background:var(--accent-cyan)"></div>
+            <span>LEVEL 3 AGGREGATE TRAFFIC INTELLIGENCE & MACRO ANALYTICS</span>
+          </div>
+
+          <div class="l3-controls-bar">
+            <span style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono)">TIME FILTER:</span>
+            <div class="time-filter-group">
+              <button class="time-chip" data-range="live" type="button">LIVE</button>
+              <button class="time-chip" data-range="5m" type="button">5 MIN</button>
+              <button class="time-chip" data-range="10m" type="button">10 MIN</button>
+              <button class="time-chip" data-range="30m" type="button">30 MIN</button>
+              <button class="time-chip active" data-range="all" type="button">ALL TIME</button>
+            </div>
+            <div id="l3ActiveFilterBadge" style="display:none; background:rgba(244,63,94,0.15); border:1px solid var(--accent-crimson); color:var(--accent-crimson); padding:2px 8px; border-radius:3px; font-size:10px; font-family:var(--font-mono); align-items:center; gap:6px;">
+              <span id="l3FilterText">FILTER ACTIVE</span>
+              <button id="btnClearL3Filter" type="button" style="background:none; border:none; color:var(--accent-crimson); cursor:pointer; font-weight:bold;">✕</button>
+            </div>
+            <button class="tool-btn" id="btnRefreshL3" type="button" title="Refresh analytics">↻ Sync Analytics</button>
+          </div>
+        </div>
+
+        <!-- 1. Top 6 Operational KPI Strip -->
+        <div class="kpi-strip-grid">
+          <div class="kpi-card">
+            <div class="kpi-label">TOTAL FLOW</div>
+            <div class="kpi-val" id="kpiTotalFlow" style="color:var(--accent-cyan)">0.0</div>
+            <div class="kpi-unit">vehicles / min</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">AVERAGE SPEED</div>
+            <div class="kpi-val" id="kpiAvgSpeed" style="color:var(--accent-lime)">0.0</div>
+            <div class="kpi-unit">km / h</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">TRAFFIC DENSITY</div>
+            <div class="kpi-val" id="kpiDensity" style="color:var(--accent-blue)">0.0</div>
+            <div class="kpi-unit">vehicles / km</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">ROAD OCCUPANCY</div>
+            <div class="kpi-val" id="kpiOccupancy" style="color:var(--accent-orange)">0.0%</div>
+            <div class="kpi-unit">% surface occupied</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">ACTIVE QUEUE</div>
+            <div class="kpi-val" id="kpiQueue" style="color:var(--accent-crimson)">0.0</div>
+            <div class="kpi-unit">metres (< 6 km/h)</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-label">PEAK FLOW</div>
+            <div class="kpi-val" id="kpiPeakFlow" style="color:var(--accent-purple)">0.0</div>
+            <div class="kpi-unit">vehicles / min</div>
+          </div>
+        </div>
+
+        <!-- 2. Visualization Grid (8 Analytical Modules) -->
+        <div class="l3-visual-grid">
+          
+          <!-- Row 1: Flow Timeline + Movement Flow -->
+          <div class="l3-grid-row">
+            <!-- 1. Traffic Flow Timeline -->
+            <div class="l3-widget-card" style="flex:1.4;">
+              <div class="widget-header">
+                <div class="widget-title">1. TRAFFIC FLOW TIMELINE (VEHICLES / MIN)</div>
+                <div class="widget-legend">
+                  <span style="color:#38BDF8">■ Cars</span>
+                  <span style="color:#C8F23A">■ Bikes</span>
+                  <span style="color:#A855F7">■ Buses</span>
+                  <span style="color:#F43F5E">■ Trucks</span>
+                  <span style="color:#FB923C">✦ Peak Flow</span>
+                </div>
+              </div>
+              <div class="widget-body" style="height:140px; position:relative;">
+                <canvas id="flowTimelineCanvas"></canvas>
+              </div>
+            </div>
+
+            <!-- 2. Movement Flow Visualization -->
+            <div class="l3-widget-card" style="flex:1;">
+              <div class="widget-header">
+                <div class="widget-title">2. INTERSECTION MOVEMENT FLOW (12 VECTORS)</div>
+                <span style="font-size:9px; color:var(--text-muted)">CLICK ARROW TO FILTER</span>
+              </div>
+              <div class="widget-body" style="height:140px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                <div id="intersectionDiagram" style="width:125px; height:125px; position:relative; flex-shrink:0;">
+                  <svg id="intersectionSvg" viewBox="0 0 200 200" style="width:100%; height:100%;"></svg>
+                </div>
+                <div id="movementListGrid" class="movement-list-scroll" style="flex:1; height:130px; overflow-y:auto;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 2: Lane Volumes + Modal Split -->
+          <div class="l3-grid-row">
+            <!-- 3. Lane Volume Breakdown -->
+            <div class="l3-widget-card" style="flex:1.2;">
+              <div class="widget-header">
+                <div class="widget-title">3. LANE & CORRIDOR PASSAGE VOLUME</div>
+                <span style="font-size:9px; color:var(--text-muted)">CLICK BAR TO FILTER</span>
+              </div>
+              <div class="widget-body" id="laneVolumeList" style="height:130px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding-top:4px;">
+                <!-- Dynamically populated lane bars -->
+              </div>
+            </div>
+
+            <!-- 4. Modal Split -->
+            <div class="l3-widget-card" style="flex:0.8;">
+              <div class="widget-header">
+                <div class="widget-title">4. MODAL SPLIT & CLASS RATIO</div>
+              </div>
+              <div class="widget-body" style="height:130px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                <div style="width:85px; height:85px; position:relative; flex-shrink:0;">
+                  <canvas id="modalDonutCanvas" width="85" height="85"></canvas>
+                </div>
+                <div id="modalSplitList" style="flex:1; display:flex; flex-direction:column; gap:3px; font-size:10.5px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Row 3: Queue Evolution + Origin-Destination Matrix + Flow-Density -->
+          <div class="l3-grid-row">
+            <!-- 5. Queue Evolution Time-Series -->
+            <div class="l3-widget-card" style="flex:1;">
+              <div class="widget-header">
+                <div class="widget-title">5. QUEUE EVOLUTION & DISSIPATION (m)</div>
+                <div id="queueMetaStats" style="font-size:9.5px; color:var(--accent-crimson); font-family:var(--font-mono)">MAX: 0m</div>
+              </div>
+              <div class="widget-body" style="height:130px;">
+                <canvas id="queueEvolutionCanvas"></canvas>
+              </div>
+            </div>
+
+            <!-- 6. Origin-Destination (OD) Matrix -->
+            <div class="l3-widget-card" style="flex:1;">
+              <div class="widget-header">
+                <div class="widget-title">6. ORIGIN–DESTINATION MATRIX (N, S, E, W)</div>
+                <span style="font-size:9px; color:var(--text-muted)">CLICK CELL TO HIGHLIGHT</span>
+              </div>
+              <div class="widget-body" style="height:130px; display:flex; align-items:center; justify-content:center;">
+                <table class="od-matrix-table" id="odMatrixTable"></table>
+              </div>
+            </div>
+
+            <!-- 7. Flow-Density Fundamental Relationship -->
+            <div class="l3-widget-card" style="flex:1;">
+              <div class="widget-header">
+                <div class="widget-title">7. FLOW–DENSITY RELATIONSHIP</div>
+                <div class="widget-legend">
+                  <span style="color:#C8F23A">● Free</span>
+                  <span style="color:#38BDF8">● High</span>
+                  <span style="color:#F43F5E">● Congested</span>
+                </div>
+              </div>
+              <div class="widget-body" style="height:130px;">
+                <canvas id="flowDensityCanvas"></canvas>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
       </section>
 
     </main>

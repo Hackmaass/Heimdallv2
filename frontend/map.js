@@ -339,11 +339,21 @@ class TrajectoryMapVisualizer {
     this.render();
   }
 
-  _getSpeedColor(speed) {
-    if (speed < 4.0) return "#F43F5E"; // Crimson: Stopped / Congested
-    if (speed < 15.0) return "#FB923C"; // Orange: Slow
-    if (speed < 30.0) return "#00E5FF"; // Cyan: Moderate
-    return "#C8F23A"; // Lime: Fast flow
+  _getSpeedColor(speedOrKmh) {
+    const kmh = speedOrKmh > 80 ? speedOrKmh * 0.234 : speedOrKmh;
+    if (kmh < 15.0) return "#F43F5E"; // RED: Severe slowdown / queue (< 15 km/h)
+    if (kmh < 35.0) return "#FB923C"; // YELLOW/ORANGE: Slowing (15 - 35 km/h)
+    return "#00FFB2"; // GREEN: Normal / Free-flow (> 35 km/h)
+  }
+
+  setHighlightFilter(filterObj) {
+    this.highlightFilter = filterObj;
+    this.render();
+  }
+
+  clearHighlightFilter() {
+    this.highlightFilter = null;
+    this.render();
   }
 
   render() {
@@ -364,7 +374,6 @@ class TrajectoryMapVisualizer {
       ctx.globalAlpha = this.videoOpacity;
       try {
         ctx.drawImage(this.bgImage, 0, 0, this.bgWidth, this.bgHeight);
-        // Border around video frame
         ctx.strokeStyle = "rgba(0, 229, 255, 0.4)";
         ctx.lineWidth = 1.5 / this.scale;
         ctx.strokeRect(0, 0, this.bgWidth, this.bgHeight);
@@ -394,23 +403,34 @@ class TrajectoryMapVisualizer {
       ctx.stroke();
     }
 
-    // ── LAYER 2: Traffic Density Heatmap ─────────────────────────────────────
+    // ── LAYER 2: Spatial Speed & Traffic Density Heatmap ─────────────────────
     if (this.layerHeatmap) {
       ctx.save();
       ctx.globalCompositeOperation = "screen";
       for (const t of this.tracks.values()) {
         if (this.classFilters.has(t.class)) continue;
         const pts = t.trail || [t.centroid];
+        const velKmh = (t.velocity_kmh !== undefined && t.velocity_kmh !== null) ? Number(t.velocity_kmh) : (t.speed * 0.234);
+        
+        let cCenter = "rgba(0, 255, 178, 0.65)"; // GREEN: Free-flow
+        let cMid = "rgba(0, 229, 255, 0.35)";
+        if (velKmh <= 15.0) {
+          cCenter = "rgba(244, 63, 94, 0.85)"; // RED: Severe slowdown
+          cMid = "rgba(251, 146, 60, 0.45)";
+        } else if (velKmh <= 35.0) {
+          cCenter = "rgba(251, 146, 60, 0.75)"; // YELLOW: Slowing
+          cMid = "rgba(200, 242, 58, 0.4)";
+        }
+
         for (let i = 0; i < pts.length; i += 2) {
           const [px, py] = pts[i];
-          const grad = ctx.createRadialGradient(px, py, 2 / this.scale, px, py, 24 / this.scale);
-          grad.addColorStop(0, "rgba(255, 60, 0, 0.55)");
-          grad.addColorStop(0.4, "rgba(255, 180, 0, 0.35)");
-          grad.addColorStop(0.8, "rgba(0, 229, 255, 0.15)");
+          const grad = ctx.createRadialGradient(px, py, 2 / this.scale, px, py, 26 / this.scale);
+          grad.addColorStop(0, cCenter);
+          grad.addColorStop(0.5, cMid);
           grad.addColorStop(1, "rgba(0, 0, 0, 0)");
           ctx.fillStyle = grad;
           ctx.beginPath();
-          ctx.arc(px, py, 24 / this.scale, 0, Math.PI * 2);
+          ctx.arc(px, py, 26 / this.scale, 0, Math.PI * 2);
           ctx.fill();
         }
       }
