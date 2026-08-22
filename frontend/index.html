@@ -164,7 +164,12 @@
           </div>
 
           <!-- Level 4 Geographic Map Layer Bar -->
-          <div class="layer-control-bar" id="geoMapLayerBar" style="display:none; background:rgba(15, 23, 42, 0.95);">
+          <div class="layer-control-bar" id="geoMapLayerBar" style="display:none; background:rgba(15, 23, 42, 0.95); flex-wrap:wrap; gap:6px;">
+            <div class="layer-group">
+              <span class="layer-group-title">BASEMAP:</span>
+              <button class="layer-chip active" id="btnBasemapDark" type="button">🌑 Dark Tactical</button>
+              <button class="layer-chip" id="btnBasemapSat" type="button">🛰️ Satellite View</button>
+            </div>
             <div class="layer-group">
               <span class="layer-group-title">MAP LAYERS:</span>
               <button class="layer-chip active" id="geoToggleRoads" type="button">🛣️ Road Corridors</button>
@@ -172,10 +177,11 @@
               <button class="layer-chip active" id="geoToggleVehicles" type="button">🚗 Grounded Tracks</button>
               <button class="layer-chip active" id="geoToggleDesire" type="button">↔️ Desire Lines</button>
               <button class="layer-chip active" id="geoToggleQueues" type="button">🛑 Spatial Queues</button>
-              <button class="layer-chip" id="geoToggleSpeedHeat" type="button">⚡ Speed Map</button>
+              <button class="layer-chip" id="geoToggleSpeedHeat" type="button">⚡ Speed Heatmap</button>
             </div>
-            <div class="layer-group" style="margin-left:auto;">
-              <span class="badge" style="background:rgba(0,229,255,0.15); color:var(--accent-cyan); font-size:10px;">HINJAWADI JUNCTION (18.5662° N, 73.7718° E)</span>
+            <div class="layer-group" style="margin-left:auto; display:flex; align-items:center; gap:6px;">
+              <button class="tool-btn" id="btnGeoCenterJunction" type="button" style="font-size:10px;">🎯 Focus Junction</button>
+              <span class="badge" style="background:rgba(0,229,255,0.15); color:var(--accent-cyan); font-size:10px;">18.5662° N, 73.7718° E</span>
             </div>
           </div>
 

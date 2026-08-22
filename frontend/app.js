@@ -32,7 +32,9 @@ document.addEventListener("DOMContentLoaded", () => {
   loadInitialTelemetry();
   loadCalibrationStatus();
   loadSessionTrajectories();
-  refreshLevel3Analytics();
+  
+  // Initialize in Level 4 Spatial Grounding mode by default
+  setLevelMode(4);
 });
 
 let wsReconnectTimeout = null;
@@ -1910,6 +1912,10 @@ function renderFlowDensityScatter(fdData) {
 
 let geoMap = null;
 let currentCenterMapMode = "canvas"; // "canvas" or "geo"
+let tileLayerDark = null;
+let tileLayerSat = null;
+let currentBasemap = "dark"; // "dark" or "sat"
+
 let geoLayers = {
   roads: null,
   lanes: null,
@@ -1947,8 +1953,16 @@ function setCenterMapMode(mode) {
     if (canvasLayerBar) canvasLayerBar.style.display = "none";
     if (geoMapLayerBar) geoMapLayerBar.style.display = "flex";
     if (title) title.textContent = "Georeferenced Real-World Road Network (Leaflet.js)";
-    if (geoMap) {
-      setTimeout(() => geoMap.invalidateSize(), 150);
+
+    if (!geoMap) {
+      initLevel4SpatialMap();
+    } else {
+      setTimeout(() => {
+        if (geoMap) {
+          geoMap.invalidateSize(true);
+          geoMap.setView([18.566227, 73.771846], 18);
+        }
+      }, 80);
     }
     refreshLevel4Analytics();
   }
@@ -1956,7 +1970,12 @@ function setCenterMapMode(mode) {
 
 function initLevel4SpatialMap() {
   const container = document.getElementById("geographicMapContainer");
-  if (!container || typeof L === "undefined" || geoMap) return;
+  if (!container || typeof L === "undefined") return;
+
+  if (geoMap) {
+    setTimeout(() => geoMap.invalidateSize(true), 80);
+    return;
+  }
 
   try {
     const center = [18.566227, 73.771846];
@@ -1969,13 +1988,21 @@ function initLevel4SpatialMap() {
       attributionControl: false,
     });
 
-    // Dark Matter CartoDB Basemap
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    // Dark Matter Tactical Basemap
+    tileLayerDark = L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
       subdomains: "abcd",
       maxZoom: 20,
-    }).addTo(geoMap);
+    });
 
-    // Initialize Layer Groups
+    // High-Resolution Esri Satellite Basemap
+    tileLayerSat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19,
+    });
+
+    // Add default basemap
+    tileLayerDark.addTo(geoMap);
+
+    // Initialize Feature Layer Groups
     geoLayers.roads = L.layerGroup().addTo(geoMap);
     geoLayers.lanes = L.layerGroup().addTo(geoMap);
     geoLayers.desire = L.layerGroup().addTo(geoMap);
@@ -1983,10 +2010,47 @@ function initLevel4SpatialMap() {
     geoLayers.speedHeat = L.layerGroup().addTo(geoMap);
     geoLayers.vehicles = L.layerGroup().addTo(geoMap);
 
-    // Initial fetch
+    // Basemap Switcher Handlers
+    const btnDark = document.getElementById("btnBasemapDark");
+    const btnSat = document.getElementById("btnBasemapSat");
+    if (btnDark) {
+      btnDark.onclick = () => switchBasemap("dark");
+    }
+    if (btnSat) {
+      btnSat.onclick = () => switchBasemap("sat");
+    }
+
+    // Focus Junction Button
+    const btnFocus = document.getElementById("btnGeoCenterJunction");
+    if (btnFocus) {
+      btnFocus.onclick = () => {
+        if (geoMap) geoMap.flyTo(center, 18, { duration: 0.8 });
+      };
+    }
+
+    // Initial Fetch and render
     refreshLevel4Analytics();
   } catch (e) {
     console.warn("Leaflet Map init error:", e);
+  }
+}
+
+function switchBasemap(type) {
+  if (!geoMap) return;
+  currentBasemap = type;
+  const btnDark = document.getElementById("btnBasemapDark");
+  const btnSat = document.getElementById("btnBasemapSat");
+
+  if (type === "sat") {
+    if (geoMap.hasLayer(tileLayerDark)) geoMap.removeLayer(tileLayerDark);
+    if (!geoMap.hasLayer(tileLayerSat)) geoMap.addLayer(tileLayerSat);
+    if (btnSat) btnSat.classList.add("active");
+    if (btnDark) btnDark.classList.remove("active");
+  } else {
+    if (geoMap.hasLayer(tileLayerSat)) geoMap.removeLayer(tileLayerSat);
+    if (!geoMap.hasLayer(tileLayerDark)) geoMap.addLayer(tileLayerDark);
+    if (btnDark) btnDark.classList.add("active");
+    if (btnSat) btnSat.classList.remove("active");
   }
 }
 
@@ -2039,6 +2103,7 @@ function renderLevel4SpatialUI(data) {
     renderGeoMapGroundedVehicles(data.grounded_trajectories);
     renderGeoMapDesireLines(data.desire_lines);
     renderGeoMapQueues(data.spatial_queues);
+    renderGeoMapSpeedHeat(data.grounded_trajectories);
   }
 
   // 3. Render Per-Lane Spatial Performance Table
@@ -2065,25 +2130,54 @@ function renderGeoMapRoadsAndLanes(geojson) {
       const latlngs = geom.coordinates[0].map(c => [c[1], c[0]]);
       L.polygon(latlngs, {
         color: "#00E5FF",
-        weight: 1.5,
-        fillColor: "rgba(0, 229, 255, 0.06)",
+        weight: 2,
+        fillColor: "rgba(0, 229, 255, 0.12)",
         fillOpacity: 0.8,
-        dashArray: "3, 3",
-      }).bindTooltip(`<b>${props.name}</b><br>Diameter: ${props.diameter_m}m`, { sticky: true }).addTo(geoLayers.roads);
+        dashArray: "4, 4",
+      }).bindTooltip(`
+        <div style="font-family:monospace; font-size:11px;">
+          <b style="color:#00E5FF;">${props.name}</b><br>
+          <span style="color:#94A3B8;">Hinjawadi Junction Node (INT_01)</span><br>
+          <span>Diameter: <b>${props.diameter_m}m</b></span>
+        </div>
+      `, { sticky: true }).addTo(geoLayers.roads);
     } else if (props.feature_type === "road_segment" && geom.type === "LineString") {
       const latlngs = geom.coordinates.map(c => [c[1], c[0]]);
+      
+      // Outer corridor envelope
       L.polyline(latlngs, {
-        color: "rgba(56, 189, 248, 0.4)",
-        weight: 14,
+        color: "rgba(56, 189, 248, 0.35)",
+        weight: 22,
         lineCap: "round",
-      }).bindTooltip(`<b>${props.name}</b><br>Approach: ${props.approach}<br>Length: ${props.length_m}m`, { sticky: true }).addTo(geoLayers.roads);
+      }).bindTooltip(`
+        <div style="font-family:monospace; font-size:11px;">
+          <b style="color:#38BDF8;">${props.name}</b><br>
+          <span>Approach: <b>${props.approach}</b></span><br>
+          <span>Corridor Length: <b>${props.length_m}m</b></span>
+        </div>
+      `, { sticky: true }).addTo(geoLayers.roads);
+
+      // Centerline
+      L.polyline(latlngs, {
+        color: "#38BDF8",
+        weight: 2,
+        opacity: 0.8,
+      }).addTo(geoLayers.roads);
+
     } else if (props.feature_type === "lane" && geom.type === "LineString") {
       const latlngs = geom.coordinates.map(c => [c[1], c[0]]);
       L.polyline(latlngs, {
-        color: "rgba(200, 242, 58, 0.5)",
-        weight: 3,
-        dashArray: "4, 4",
-      }).bindTooltip(`<b>${props.name}</b><br>Width: ${props.width_m}m<br>Movements: ${props.permitted_movements.join(", ")}`, { sticky: true }).addTo(geoLayers.lanes);
+        color: "#C8F23A",
+        weight: 3.5,
+        dashArray: "6, 6",
+        opacity: 0.85,
+      }).bindTooltip(`
+        <div style="font-family:monospace; font-size:11px;">
+          <b style="color:#C8F23A;">${props.name}</b><br>
+          <span>Lane Width: <b>${props.width_m}m</b></span><br>
+          <span>Permitted Movements: <b style="color:#38BDF8;">${(props.permitted_movements || []).join(", ")}</b></span>
+        </div>
+      `, { sticky: true }).addTo(geoLayers.lanes);
     }
   });
 }
@@ -2098,11 +2192,18 @@ function renderGeoMapGroundedVehicles(trajectories) {
     if (!lat || !lon) return;
 
     const isSelected = (selectedGroundedTrackId === t.track_id);
+    const clsLower = (t.class || "car").toLowerCase();
+
+    let markerColor = "#38BDF8";
+    if (clsLower.includes("bike") || clsLower.includes("motorcycle")) markerColor = "#C8F23A";
+    else if (clsLower.includes("bus")) markerColor = "#F59E0B";
+    else if (clsLower.includes("truck") || clsLower.includes("hgv")) markerColor = "#F43F5E";
+
     const customIcon = L.divIcon({
-      className: `geo-vehicle-marker ${isSelected ? 'selected' : ''}`,
+      className: `geo-vehicle-marker ${clsLower} ${isSelected ? 'selected' : ''}`,
       html: `<span>#${t.track_id}</span>`,
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
     });
 
     const marker = L.marker([lat, lon], { icon: customIcon }).addTo(geoLayers.vehicles);
@@ -2111,20 +2212,27 @@ function renderGeoMapGroundedVehicles(trajectories) {
     if (t.gps_trail && t.gps_trail.length >= 2) {
       const trailLatLngs = t.gps_trail.map(c => [c[1], c[0]]);
       L.polyline(trailLatLngs, {
-        color: isSelected ? "#C8F23A" : "#00E5FF",
-        weight: isSelected ? 3.5 : 2.0,
-        opacity: 0.8,
+        color: isSelected ? "#FFFFFF" : markerColor,
+        weight: isSelected ? 4.0 : 2.5,
+        opacity: 0.85,
       }).addTo(geoLayers.vehicles);
     }
 
-    marker.bindTooltip(`
-      <b>TRACK #${t.track_id} (${t.class})</b><br>
-      Road: ${t.road_segment}<br>
-      Lane: ${t.lane}<br>
-      Speed: ${t.speed_kmh} km/h<br>
-      Direction: ${t.direction}<br>
-      Queue: ${t.queue_state}
-    `, { sticky: true });
+    marker.bindPopup(`
+      <div style="font-family:monospace; min-width:180px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #334155; padding-bottom:4px; margin-bottom:6px;">
+          <b style="color:${markerColor}; font-size:12px;">TRACK #${t.track_id}</b>
+          <span style="font-size:9.5px; background:rgba(56,189,248,0.2); padding:1px 5px; border-radius:3px; color:#38BDF8;">${t.class}</span>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px; font-size:10px;">
+          <div><span style="color:#64748B;">ROAD:</span><br><b>${t.road_segment || '--'}</b></div>
+          <div><span style="color:#64748B;">LANE:</span><br><b style="color:#C8F23A;">${t.lane || '--'}</b></div>
+          <div><span style="color:#64748B;">SPEED:</span><br><b style="color:#38BDF8;">${t.speed_kmh} km/h</b></div>
+          <div><span style="color:#64748B;">QUEUE:</span><br><b style="color:${t.queue_state === 'QUEUED' ? '#F43F5E' : '#C8F23A'};">${t.queue_state}</b></div>
+          <div style="grid-column: 1 / -1;"><span style="color:#64748B;">GPS:</span><br><b>${t.latitude.toFixed(6)}, ${t.longitude.toFixed(6)}</b></div>
+        </div>
+      </div>
+    `);
 
     marker.on("click", () => {
       inspectGroundedTrack(t.track_id);
@@ -2140,17 +2248,19 @@ function renderGeoMapDesireLines(desireLines) {
     if (dl.vehicle_count <= 0 || !dl.polyline_coords || dl.polyline_coords.length < 2) return;
 
     const latlngs = dl.polyline_coords.map(c => [c[1], c[0]]);
-    const color = dl.vehicle_count > 10 ? "#00E5FF" : "rgba(56, 189, 248, 0.6)";
+    const color = dl.vehicle_count > 10 ? "#00E5FF" : "rgba(56, 189, 248, 0.75)";
 
     L.polyline(latlngs, {
       color: color,
-      weight: Math.max(2.0, Math.min(8.0, dl.stroke_width || 3.0)),
+      weight: Math.max(3.0, Math.min(9.0, dl.stroke_width || 4.0)),
       opacity: 0.85,
       lineCap: "round",
     }).bindTooltip(`
-      <b>DESIRE LINE: ${dl.movement_id}</b><br>
-      ${dl.origin} → ${dl.destination}<br>
-      Volume: ${dl.vehicle_count} vehicles (${dl.percentage}%)
+      <div style="font-family:monospace; font-size:11px;">
+        <b style="color:#00E5FF;">DESIRE CORRIDOR: ${dl.movement_id}</b><br>
+        <span>${dl.origin} → ${dl.destination}</span><br>
+        <span>Volume: <b style="color:#C8F23A;">${dl.vehicle_count} vehicles</b> (${dl.percentage}%)</span>
+      </div>
     `, { sticky: true }).addTo(geoLayers.desire);
   });
 }
@@ -2167,17 +2277,52 @@ function renderGeoMapQueues(queues) {
       [q.end_coord[1], q.end_coord[0]],
     ];
 
+    // Pulsing queue hazard line
     L.polyline(latlngs, {
       color: "#F43F5E",
-      weight: 6,
-      opacity: 0.9,
+      weight: 8,
+      opacity: 0.95,
+      lineCap: "round",
     }).bindTooltip(`
-      <b style="color:#F43F5E">SPATIAL QUEUE: ${q.approach}</b><br>
-      Road: ${q.road_name}<br>
-      Queued Vehicles: ${q.queued_vehicle_count}<br>
-      Length: ${q.queue_length_meters} m<br>
-      Status: ${q.status}
+      <div style="font-family:monospace; font-size:11px;">
+        <b style="color:#F43F5E;">⚠️ ACTIVE SPATIAL QUEUE: ${q.approach}</b><br>
+        <span>Road: <b>${q.road_name}</b></span><br>
+        <span>Queue Length: <b style="color:#F43F5E;">${q.queue_length_meters}m</b></span><br>
+        <span>Queued Vehicles: <b style="color:#F59E0B;">${q.queued_vehicle_count}</b></span>
+      </div>
     `, { sticky: true }).addTo(geoLayers.queues);
+
+    // Queue start beacon marker
+    L.circleMarker([q.start_coord[1], q.start_coord[0]], {
+      radius: 6,
+      color: "#FFFFFF",
+      fillColor: "#F43F5E",
+      fillOpacity: 1.0,
+      weight: 2,
+    }).addTo(geoLayers.queues);
+  });
+}
+
+function renderGeoMapSpeedHeat(trajectories) {
+  if (!geoLayers.speedHeat || !trajectories) return;
+  geoLayers.speedHeat.clearLayers();
+
+  trajectories.forEach(t => {
+    if (!t.latitude || !t.longitude) return;
+    const speed = t.speed_kmh || 0;
+
+    let heatColor = "#F43F5E"; // < 10 km/h (Stopped / Queued)
+    if (speed >= 10 && speed < 25) heatColor = "#F59E0B"; // 10-25 km/h (Slow)
+    else if (speed >= 25 && speed < 45) heatColor = "#38BDF8"; // 25-45 km/h (Moderate)
+    else if (speed >= 45) heatColor = "#C8F23A"; // > 45 km/h (Free Flow)
+
+    L.circle([t.latitude, t.longitude], {
+      radius: 5,
+      color: heatColor,
+      fillColor: heatColor,
+      fillOpacity: 0.45,
+      weight: 1,
+    }).addTo(geoLayers.speedHeat);
   });
 }
 
