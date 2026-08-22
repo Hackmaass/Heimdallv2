@@ -33,9 +33,9 @@ from .analytics.engine import TrafficAnalyticsEngine
 
 
 class PipelineStatus:
-    def __init__(self, video_id: str):
+    def __init__(self, video_id: str, status: str = "IDLE"):
         self.video_id = video_id
-        self.status = "IDLE"  # IDLE, PROCESSING, COMPLETED, ERROR
+        self.status = status  # IDLE, QUEUED, PROCESSING, COMPLETED, ERROR
         self.current_frame = 0
         self.total_frames = 0
         self.progress_percent = 0.0
@@ -43,6 +43,8 @@ class PipelineStatus:
         self.active_tracks = 0
         self.total_unique_tracks = 0
         self.error_message: Optional[str] = None
+        self.output_files: Optional[Dict[str, Any]] = None
+        self.summary: Optional[Dict[str, Any]] = None
 
 
 class HeimdallPipeline:
@@ -127,12 +129,18 @@ class HeimdallPipeline:
         status = status_container or PipelineStatus(video_id=video_id)
         status.status = "PROCESSING"
 
+        if hasattr(video_source, "open"):
+            try:
+                video_source.open()
+            except Exception:
+                pass
+
         total_frames = video_source.total_frames
         status.total_frames = min(total_frames, max_frames) if max_frames else total_frames
 
-        fps = video_source.fps or 30.0
-        width = video_source.width or 1920
-        height = video_source.height or 1080
+        fps = getattr(video_source, "fps", 30.0) or 30.0
+        width = getattr(video_source, "width", 1920) or 1920
+        height = getattr(video_source, "height", 1080) or 1080
 
         # Auto-calibrate ground homography from flight telemetry if not manually calibrated
         if not self.trajectory_engine.speed_estimator.is_calibrated and hasattr(self.telemetry_provider, "get_ground_homography"):
@@ -263,6 +271,13 @@ class HeimdallPipeline:
 
             status.status = "COMPLETED"
             status.progress_percent = 100.0
+            status.summary = summary_data
+            status.output_files = {
+                "annotated_video": annotated_video_path if self.save_annotated_video else None,
+                "tracks_csv": csv_path,
+                "trajectories_json": traj_path,
+                "summary_json": summary_path,
+            }
 
         except Exception as e:
             status.status = "ERROR"

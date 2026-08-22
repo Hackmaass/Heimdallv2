@@ -75,12 +75,25 @@ class TrajectoryEngine:
                 speed_estimate=obj.speed_estimate,
             )
 
+            if obj.normalized is not None:
+                norm_class = obj.normalized.normalized_class
+                is_uncertain = obj.normalized.is_uncertain
+            else:
+                from ..perception.classification.taxonomy import normalize_class, RoadUserClass
+                norm_res = normalize_class(obj.raw_class, obj.confidence)
+                if norm_res is not None:
+                    norm_class = norm_res.normalized_class
+                    is_uncertain = norm_res.is_uncertain
+                else:
+                    norm_class = RoadUserClass.OTHER_VEHICLE
+                    is_uncertain = True
+
             if tid not in self.tracks:
                 # Initialize new candidate trajectory
                 traj = TrackTrajectory(
                     track_id=tid,
                     raw_class=obj.raw_class,
-                    normalized_class=obj.normalized.normalized_class,
+                    normalized_class=norm_class,
                     fine_grained_class=fine_result.fine_class.value,
                     fine_grained_confidence=fine_result.confidence,
                     confidence=obj.confidence,
@@ -90,7 +103,7 @@ class TrajectoryEngine:
                     last_frame=frame_index,
                     total_frames=1,
                     is_active=True,
-                    is_uncertain=obj.normalized.is_uncertain,
+                    is_uncertain=is_uncertain,
                     current_bbox=obj.bbox,
                     current_centroid=(smoothed_cx, smoothed_cy),
                     current_speed=obj.speed_estimate,

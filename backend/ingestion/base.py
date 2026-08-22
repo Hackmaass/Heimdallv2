@@ -59,6 +59,14 @@ class VideoSource(ABC):
         """(width, height)"""
         pass
 
+    @property
+    def width(self) -> int:
+        return self.resolution[0]
+
+    @property
+    def height(self) -> int:
+        return self.resolution[1]
+
     def __enter__(self):
         self.open()
         return self

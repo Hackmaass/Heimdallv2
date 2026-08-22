@@ -27,10 +27,10 @@ class JobStatusResponse(BaseModel):
     progress_percent: float
     current_frame: int
     total_frames: int
-    fps_processing: float
-    active_tracks: int
-    total_unique_tracks: int
-    output_files: Dict[str, str] = {}
+    fps_processing: float = 0.0
+    active_tracks: int = 0
+    total_unique_tracks: int = 0
+    output_files: Optional[Dict[str, Any]] = None
     summary: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
 

@@ -46,6 +46,10 @@ class BaseSpeedEstimator(ABC):
     ) -> KinematicState:
         pass
 
+    @property
+    def is_calibrated(self) -> bool:
+        return False
+
     def estimate(
         self,
         current_pos: Tuple[float, float],
@@ -162,6 +166,10 @@ class GroundPlaneSpeedEstimator(BaseSpeedEstimator):
     def __init__(self, homography: RoadPlaneHomography):
         self.homography = homography
         self.fallback = PixelSpeedEstimator()
+
+    @property
+    def is_calibrated(self) -> bool:
+        return self.homography.is_calibrated
 
     def estimate(
         self,

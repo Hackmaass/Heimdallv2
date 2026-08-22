@@ -119,3 +119,15 @@ class FileSource(VideoSource):
     @property
     def resolution(self) -> Tuple[int, int]:
         return (self._width, self._height)
+
+    @property
+    def width(self) -> int:
+        if self._width == 0 and self._cap is None:
+            self.open()
+        return self._width
+
+    @property
+    def height(self) -> int:
+        if self._height == 0 and self._cap is None:
+            self.open()
+        return self._height
