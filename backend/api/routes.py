@@ -6,15 +6,16 @@ import os
 import shutil
 import uuid
 import asyncio
-from typing import Dict, Any, Optional
-from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException, Query
+from typing import Dict, Any, Optional, List
+from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException, Query, Response
 from fastapi.responses import FileResponse, JSONResponse
 
-from .schemas import ProcessVideoRequest, JobStatusResponse, GimbalRequest, MissionRequest
+from .schemas import ProcessVideoRequest, JobStatusResponse, GimbalRequest, MissionRequest, CalibrationRequest, CalibrationResponse
 from .websocket import ConnectionManager
 from ..pipeline import HeimdallPipeline, PipelineStatus
 from ..ingestion.file_source import FileSource
 from ..trajectories.storage import TrajectoryStorage
+from ..trajectories.homography import RoadPlaneHomography
 from ..integrations.flytbase.client import FlytBaseClient
 from ..integrations.flytbase.models import FlytBaseMissionPlan, FlytBaseWaypoint
 
@@ -271,6 +272,77 @@ async def clear_trajectories():
     return {"status": "SUCCESS", "message": "All trajectories and tracks cleared."}
 
 
+# ── Ground Plane Calibration (Level 2) ──────────────────────────────────────────
+
+@router.get("/calibration")
+async def get_calibration():
+    """Retrieves current ground-plane perspective homography calibration status."""
+    h = RoadPlaneHomography.load("configs/calibration.json")
+    return h.to_dict()
+
+
+@router.post("/calibration")
+async def set_calibration(req: CalibrationRequest):
+    """Calibrates ground-plane perspective homography from 4 image points and real distances."""
+    h = RoadPlaneHomography()
+    if req.road_width_m and req.road_length_m:
+        success = h.calibrate_from_dimensions(
+            [tuple(p) for p in req.image_points], # type: ignore
+            req.road_width_m,
+            req.road_length_m,
+        )
+    elif req.world_points:
+        success = h.calibrate(
+            [tuple(p) for p in req.image_points], # type: ignore
+            [tuple(p) for p in req.world_points], # type: ignore
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Must specify either (road_width_m, road_length_m) or 4 world_points.")
+
+    if not success:
+        raise HTTPException(status_code=400, detail="Homography calibration calculation failed. Ensure points form a valid non-collinear quadrangle.")
+
+    h.save("configs/calibration.json")
+    return {
+        "status": "SUCCESS",
+        "is_calibrated": True,
+        "rms_error_m": h.rms_error_m,
+        "road_width_m": req.road_width_m,
+        "road_length_m": req.road_length_m,
+        "message": f"Ground plane calibrated successfully (RMS error: {h.rms_error_m:.3f}m).",
+    }
+
+
+@router.delete("/calibration")
+async def delete_calibration():
+    """Clears saved calibration and reverts to relative pixel kinematics."""
+    if os.path.exists("configs/calibration.json"):
+        os.remove("configs/calibration.json")
+    return {"status": "SUCCESS", "message": "Calibration removed. Pipeline reverted to relative kinematics."}
+
+
+# ── Metric Exporters (Level 2) ─────────────────────────────────────────────────
+
+@router.get("/export/csv")
+async def export_csv():
+    """Downloads complete timestamp-aware kinematic observations as CSV."""
+    csv_str = storage.export_metric_csv_string()
+    return Response(
+        content=csv_str,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=heimdall_trajectories.csv"}
+    )
+
+
+@router.get("/export/json")
+async def export_json():
+    """Downloads complete structured kinematic observations as JSON."""
+    json_data = storage.export_metric_json_data()
+    return JSONResponse(
+        content=json_data,
+        headers={"Content-Disposition": "attachment; filename=heimdall_trajectories.json"}
+    )
+
 
 @router.get("/tracks")
 async def list_tracks(session_id: Optional[str] = None):
@@ -301,22 +373,50 @@ async def get_track_trajectory(track_id: int):
 
 @router.get("/analytics/summary")
 async def get_analytics_summary():
-    """Returns high-level overview of unique tracks and class distributions."""
+    """Returns high-level overview of unique tracks, fine-grained distributions, and category speeds."""
     tracks = storage.get_all_tracks()
+    calib = RoadPlaneHomography.load("configs/calibration.json")
+    is_cal = calib.is_calibrated
+
     class_counts = {}
+    fine_counts = {}
+    category_speeds = {}
     total_speed = 0.0
+
     for t in tracks:
         c = t.get("normalized_class", "UNKNOWN")
+        fc = t.get("fine_grained_class") or c
         class_counts[c] = class_counts.get(c, 0) + 1
-        total_speed += t.get("average_speed", 0.0)
+        fine_counts[fc] = fine_counts.get(fc, 0) + 1
 
-    avg_speed = round(total_speed / len(tracks), 2) if tracks else 0.0
+        spd = t.get("average_speed", 0.0)
+        total_speed += spd
+        if spd > 0:
+            if fc not in category_speeds:
+                category_speeds[fc] = []
+            category_speeds[fc].append(spd)
+
+    avg_speed = round(total_speed / len(tracks), 1) if tracks else 0.0
+    speed_spectra = [
+        {
+            "category": cat,
+            "count": len(spds),
+            "avg_speed": round(sum(spds) / len(spds), 1),
+            "max_speed": round(max(spds), 1),
+            "unit": "km/h" if is_cal else "px/s",
+        }
+        for cat, spds in sorted(category_speeds.items(), key=lambda x: len(x[1]), reverse=True)
+    ]
 
     return {
         "total_unique_tracks": len(tracks),
         "average_speed": avg_speed,
-        "speed_unit": "px/s (Relative)",
+        "is_calibrated": is_cal,
+        "speed_unit": "km/h (Calibrated)" if is_cal else "px/s (Relative)",
+        "rms_error_m": calib.rms_error_m if is_cal else None,
         "class_distribution": class_counts,
+        "fine_grained_distribution": fine_counts,
+        "category_speed_breakdown": speed_spectra,
     }
 
 

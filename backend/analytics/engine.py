@@ -1,19 +1,20 @@
 """
-Traffic Analytics Engine Foundation
-Implements Level 1 metrics (counts, active tracks, density, average speeds)
-and defines clean interfaces for higher-level Level 2+ analytics.
+Traffic Analytics Engine (Level 1 Baseline + Level 2 Object-Level Insights)
+Implements counts, density, average speeds, fine-grained category distributions,
+and category-wise speed spectra from actual tracked data.
 """
 
 from typing import List, Dict, Any, Optional
-from .metrics import ClassDistribution, DensityMetric, SpeedMetric
+from .metrics import ClassDistribution, FineGrainedDistribution, DensityMetric, SpeedMetric, CategorySpeedBreakdown
 from ..trajectories.models import TrackTrajectory
 from ..perception.classification.taxonomy import RoadUserClass
+from ..perception.classification.fine_grained import FineGrainedClass
 
 
 class TrafficAnalyticsEngine:
     """
     Core Traffic Analytics Engine.
-    Processes live trajectory state into structured metrics.
+    Processes live trajectory state into structured object-level and spatial metrics.
     """
 
     def __init__(self, frame_width: int = 1920, frame_height: int = 1080):
@@ -45,10 +46,61 @@ class TrafficAnalyticsEngine:
             total_cumulative=len(all_tracks),
         )
 
+    def calculate_fine_grained_distribution(
+        self,
+        active_tracks: List[TrackTrajectory],
+    ) -> FineGrainedDistribution:
+        """Level 2: Computes breakdown across all 13 fine-grained vehicle and VRU classes."""
+        counts = {c.value: 0 for c in FineGrainedClass}
+        for t in active_tracks:
+            cls_name = getattr(t, "fine_grained_class", t.normalized_class.value)
+            counts[cls_name] = counts.get(cls_name, 0) + 1
+
+        total_active = len(active_tracks)
+        percentages = {
+            k: round((v / total_active * 100.0), 1) if total_active > 0 else 0.0
+            for k, v in counts.items()
+        }
+
+        return FineGrainedDistribution(
+            counts=counts,
+            percentages=percentages,
+            total_active=total_active,
+        )
+
+    def calculate_category_speed_breakdown(
+        self,
+        active_tracks: List[TrackTrajectory],
+    ) -> List[CategorySpeedBreakdown]:
+        """Level 2: Computes speed metrics grouped by fine-grained vehicle category."""
+        grouped: Dict[str, List[float]] = {}
+        unit = "px/s"
+
+        for t in active_tracks:
+            if t.current_speed > 0:
+                cls_name = getattr(t, "fine_grained_class", t.normalized_class.value)
+                if cls_name not in grouped:
+                    grouped[cls_name] = []
+                grouped[cls_name].append(t.current_speed)
+                if getattr(t, "is_calibrated", False):
+                    unit = "km/h"
+
+        results = []
+        for cat, speeds in grouped.items():
+            avg_s = sum(speeds) / len(speeds)
+            max_s = max(speeds)
+            results.append(CategorySpeedBreakdown(
+                category=cat,
+                count=len(speeds),
+                avg_speed=round(avg_s, 1),
+                max_speed=round(max_s, 1),
+                unit=unit,
+            ))
+
+        return sorted(results, key=lambda r: r.count, reverse=True)
+
     def calculate_density(self, active_tracks: List[TrackTrajectory]) -> DensityMetric:
-        """
-        Level 1: Computes spatial density (active objects per megapixel).
-        """
+        """Computes spatial density (active objects per megapixel)."""
         count = len(active_tracks)
         density_mp = count / max(0.1, self.frame_area_mp)
 
@@ -69,18 +121,19 @@ class TrafficAnalyticsEngine:
         )
 
     def calculate_average_speed(self, active_tracks: List[TrackTrajectory]) -> SpeedMetric:
-        """
-        Level 1: Computes average speed and percentiles across active road users.
-        """
+        """Computes average speed and percentiles across active road users."""
         speeds = [t.current_speed for t in active_tracks if t.current_speed > 0]
+        is_cal = any(getattr(t, "is_calibrated", False) for t in active_tracks)
+        unit = "km/h" if is_cal else "px/s"
+
         if not speeds:
             return SpeedMetric(
                 average_speed=0.0,
-                unit="px/s",
+                unit=unit,
                 speed_percentiles={"p50": 0.0, "p85": 0.0, "p95": 0.0},
                 fastest_track_id=None,
                 fastest_speed=0.0,
-                is_calibrated=False,
+                is_calibrated=is_cal,
             )
 
         sorted_speeds = sorted(speeds)
@@ -93,23 +146,13 @@ class TrafficAnalyticsEngine:
         fastest_track = max(active_tracks, key=lambda t: t.current_speed)
 
         return SpeedMetric(
-            average_speed=round(avg, 2),
-            unit="px/s",
-            speed_percentiles={"p50": round(p50, 2), "p85": round(p85, 2), "p95": round(p95, 2)},
+            average_speed=round(avg, 1),
+            unit=unit,
+            speed_percentiles={"p50": round(p50, 1), "p85": round(p85, 1), "p95": round(p95, 1)},
             fastest_track_id=fastest_track.track_id,
-            fastest_speed=round(fastest_track.current_speed, 2),
-            is_calibrated=False,
+            fastest_speed=round(fastest_track.current_speed, 1),
+            is_calibrated=is_cal,
         )
-
-    # ── Level 2+ Extensible Interfaces (Honest Stubs) ──────────────────────────
-
-    def calculate_flow(self) -> Dict[str, Any]:
-        """Vehicle flow rate crossing virtual tripwires (Level 2+)."""
-        return {"status": "NOT_IMPLEMENTED", "stage": "LEVEL_2", "flow_rate": None}
-
-    def calculate_queue_length(self) -> Dict[str, Any]:
-        """Intersection queue length measurement (Level 2+)."""
-        return {"status": "NOT_IMPLEMENTED", "stage": "LEVEL_2", "queue_length_meters": None}
 
     def detect_stopped_vehicle(self, active_tracks: List[TrackTrajectory], min_duration_sec: float = 10.0) -> List[Dict[str, Any]]:
         """Detects vehicles that have remained stationary exceeding threshold."""
@@ -120,31 +163,8 @@ class TrafficAnalyticsEngine:
                     stopped.append({
                         "track_id": t.track_id,
                         "class": t.normalized_class.value,
+                        "fine_grained_class": getattr(t, "fine_grained_class", t.normalized_class.value),
                         "duration_stationary": round(t.duration_seconds, 1),
                         "centroid": t.current_centroid,
                     })
         return stopped
-
-    def detect_near_collision(self) -> Dict[str, Any]:
-        """Time-To-Collision (TTC) & spatial proximity analysis (Level 2+)."""
-        return {"status": "NOT_IMPLEMENTED", "stage": "LEVEL_2", "events": []}
-
-    def detect_wrong_way(self) -> Dict[str, Any]:
-        """Vector orientation check against designated lane flow (Level 2+)."""
-        return {"status": "NOT_IMPLEMENTED", "stage": "LEVEL_2", "violations": []}
-
-    def detect_interaction(self) -> Dict[str, Any]:
-        """Pedestrian-Vehicle conflict zone interactions (Level 2+)."""
-        return {"status": "NOT_IMPLEMENTED", "stage": "LEVEL_2", "interactions": []}
-
-    def detect_congestion(self, active_tracks: List[TrackTrajectory]) -> Dict[str, Any]:
-        """Basic congestion detection based on density and average speed."""
-        density = self.calculate_density(active_tracks)
-        speed = self.calculate_average_speed(active_tracks)
-        is_congested = (density.raw_active_count >= 15 and speed.average_speed < 8.0)
-        return {
-            "is_congested": is_congested,
-            "congestion_level": density.congestion_level,
-            "active_vehicles": density.raw_active_count,
-            "average_speed": speed.average_speed,
-        }

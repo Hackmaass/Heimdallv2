@@ -2,11 +2,12 @@
  * Heimdallv2 2D Top-Down Trajectory Visualizer & Multi-Layer Analytics Engine
  * Layers:
  * 1. Video Background Overlay (Align trajectories over aerial footage)
- * 2. Trajectory Movement Trails (Taxonomy color-coded)
+ * 2. Trajectory Movement Trails (Fine-grained & Taxonomy color-coded)
  * 3. Traffic Density Heatmap (Dwell & Congestion zones)
- * 4. Speed Kinematics Layer (Color-coded by speed velocity)
+ * 4. Speed Kinematics Layer (Color-coded by metric speed / relative speed)
  * 5. Conflict & Hazard Hotspots (Crossing trajectories & close proximity)
- * 6. Directional Velocity Arrows & Class Badges
+ * 6. Directional Velocity Arrows & Fine-Grained Class Badges
+ * 7. Ground-Plane Calibration Reference Quadrangle
  */
 
 class TrajectoryMapVisualizer {
@@ -28,7 +29,12 @@ class TrajectoryMapVisualizer {
     this.layerArrows = true;
     this.showLabels = true;
 
-    // Video Background Frame (for direct overlay)
+    // Ground-Plane Calibration State
+    this.isCalibrating = false;
+    this.calibPoints = [];
+    this.onCalibPointAdded = null;
+
+    // Video Background Frame
     this.bgImage = null;
     this.bgWidth = 640;
     this.bgHeight = 480;
@@ -52,6 +58,23 @@ class TrajectoryMapVisualizer {
       HGV: "#F43F5E",
       BUS: "#A855F7",
       OTHER_VEHICLE: "#E2E8F0"
+    };
+
+    // Fine-Grained Palette
+    this.fineColors = {
+      "Pedestrian": "#00FFB2",
+      "Bicycle": "#00E5FF",
+      "Motorcycle": "#C8F23A",
+      "Scooter": "#A3E635",
+      "Auto Rickshaw": "#FACC15",
+      "Sedan": "#38BDF8",
+      "Hatchback": "#60A5FA",
+      "SUV": "#818CF8",
+      "Car": "#38BDF8",
+      "Van": "#FB923C",
+      "Bus": "#A855F7",
+      "Truck": "#F43F5E",
+      "Heavy Truck": "#E11D48",
     };
 
     this._initEvents();
@@ -98,100 +121,160 @@ class TrajectoryMapVisualizer {
       this.render();
     });
 
+    // Object Selection & Calibration Point Picking
     this.canvas.addEventListener("click", (e) => {
       const rect = this.canvas.getBoundingClientRect();
-      const clickX = (e.clientX - rect.left - this.panX) / this.scale;
-      const clickY = (e.clientY - rect.top - this.panY) / this.scale;
-      this._checkClickHit(clickX, clickY);
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+
+      const worldX = (clickX - this.panX) / this.scale;
+      const worldY = (clickY - this.panY) / this.scale;
+
+      if (this.isCalibrating) {
+        if (this.calibPoints.length >= 4) {
+          this.calibPoints = [];
+        }
+        this.calibPoints.push([Math.round(worldX), Math.round(worldY)]);
+        if (this.onCalibPointAdded) {
+          this.onCalibPointAdded(this.calibPoints);
+        }
+        this.render();
+        return;
+      }
+
+      let closestId = null;
+      let minDistance = 25 / this.scale; // click hit radius in world units
+
+      for (const [id, track] of this.tracks.entries()) {
+        if (this.classFilters.has(track.class)) continue;
+        if (!track.centroid) continue;
+
+        const dist = Math.hypot(track.centroid[0] - worldX, track.centroid[1] - worldY);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestId = id;
+        }
+      }
+
+      this.selectedTrackId = closestId;
+      if (window.onTrackSelected) {
+        window.onTrackSelected(closestId ? this.tracks.get(closestId) : null);
+      }
+      this.render();
     });
   }
 
   resize() {
-    if (!this.canvas) return;
     const parent = this.canvas.parentElement;
-    if (parent && parent.clientWidth > 0 && parent.clientHeight > 0) {
+    if (parent) {
       this.canvas.width = parent.clientWidth;
       this.canvas.height = parent.clientHeight;
       this.render();
     }
   }
 
-  setBackgroundImage(imgElementOrSrc) {
-    if (!imgElementOrSrc) return;
-    if (typeof imgElementOrSrc === "string") {
-      const img = new Image();
-      img.onload = () => {
-        this.bgImage = img;
-        this.bgWidth = img.naturalWidth || 640;
-        this.bgHeight = img.naturalHeight || 480;
-        this.render();
-      };
-      img.src = imgElementOrSrc;
-    } else if (imgElementOrSrc.tagName === "IMG" && imgElementOrSrc.complete && imgElementOrSrc.naturalWidth > 0) {
-      this.bgImage = imgElementOrSrc;
-      this.bgWidth = imgElementOrSrc.naturalWidth;
-      this.bgHeight = imgElementOrSrc.naturalHeight;
-      this.render();
-    }
-  }
+  setVideoBackground(imageElement) {
+    if (!imageElement || !imageElement.naturalWidth) return;
+    this.bgImage = imageElement;
+    this.bgWidth = imageElement.naturalWidth || 1920;
+    this.bgHeight = imageElement.naturalHeight || 1080;
 
-  setVideoOpacity(opacity) {
-    this.videoOpacity = Math.max(0.0, Math.min(1.0, opacity));
-    this.render();
-  }
-
-  toggleLayer(layerName, enabled) {
-    if (layerName === "video") this.layerVideoOverlay = enabled;
-    else if (layerName === "trails") this.layerTrails = enabled;
-    else if (layerName === "heatmap") this.layerHeatmap = enabled;
-    else if (layerName === "speed") this.layerSpeed = enabled;
-    else if (layerName === "conflicts") this.layerConflicts = enabled;
-    else if (layerName === "arrows") this.layerArrows = enabled;
-    else if (layerName === "labels") this.showLabels = enabled;
-    this.render();
-  }
-
-  setClassFilter(className, isIncluded) {
-    if (isIncluded) {
-      this.classFilters.delete(className);
-    } else {
-      this.classFilters.add(className);
+    if (!this.hasAutoFitted) {
+      this.autoFit();
+      this.hasAutoFitted = true;
     }
     this.render();
   }
 
-  clearClassFilters() {
-    this.classFilters.clear();
+  autoFit() {
+    if (!this.canvas.width || !this.canvas.height) return;
+
+    let minX = 0, minY = 0, maxX = this.bgWidth, maxY = this.bgHeight;
+
+    if (this.tracks.size > 0) {
+      for (const t of this.tracks.values()) {
+        if (t.centroid) {
+          minX = Math.min(minX, t.centroid[0]);
+          minY = Math.min(minY, t.centroid[1]);
+          maxX = Math.max(maxX, t.centroid[0]);
+          maxY = Math.max(maxY, t.centroid[1]);
+        }
+      }
+    }
+
+    const padding = 40;
+    const contentW = Math.max(200, maxX - minX);
+    const contentH = Math.max(200, maxY - minY);
+
+    const scaleX = (this.canvas.width - padding * 2) / contentW;
+    const scaleY = (this.canvas.height - padding * 2) / contentH;
+
+    this.scale = Math.max(0.1, Math.min(scaleX, scaleY, 2.0));
+    this.panX = (this.canvas.width - contentW * this.scale) / 2 - minX * this.scale;
+    this.panY = (this.canvas.height - contentH * this.scale) / 2 - minY * this.scale;
+
     this.render();
   }
 
-  updateTracks(trackList) {
-    if (!trackList || trackList.length === 0) return;
+  resetView() {
+    this.scale = 1.0;
+    this.panX = 0;
+    this.panY = 0;
+    this.autoFit();
+  }
+
+  updateLiveTracks(trackList) {
+    if (!Array.isArray(trackList)) return;
 
     for (const t of trackList) {
-      const rawTrail = t.trail && t.trail.length > 0 ? t.trail : [t.centroid];
-      if (!this.tracks.has(t.id)) {
-        this.tracks.set(t.id, {
-          id: t.id,
-          class: t.class,
-          speed: t.speed || 0.0,
-          heading: t.heading || 0.0,
+      const id = t.id;
+      if (!this.tracks.has(id)) {
+        this.tracks.set(id, {
+          id: id,
+          class: t.class || "CAR",
+          fine_grained_class: t.fine_grained_class || "Car",
+          fine_grained_conf: t.fine_grained_conf || 0.90,
+          confidence: t.confidence || 0.9,
           centroid: t.centroid,
-          trail: [...rawTrail],
-          lastSeen: Date.now()
+          bbox: t.bbox,
+          speed: t.speed || 0,
+          velocity_kmh: t.velocity_kmh,
+          velocity_mps: t.velocity_mps,
+          acceleration_mps2: t.acceleration_mps2,
+          world_pos: t.world_pos,
+          quality_flag: t.quality_flag || "VALID_HIGH_CONFIDENCE",
+          is_calibrated: t.is_calibrated || false,
+          speed_unit: t.speed_unit || "px/s",
+          heading: t.heading || 0,
+          duration: t.duration || 0,
+          distance_travelled_m: t.distance_travelled_m || 0,
+          trail: t.trail || [t.centroid],
+          lastUpdate: Date.now()
         });
       } else {
-        const existing = this.tracks.get(t.id);
-        existing.speed = t.speed !== undefined ? t.speed : existing.speed;
-        existing.heading = t.heading !== undefined ? t.heading : existing.heading;
+        const existing = this.tracks.get(id);
         existing.centroid = t.centroid;
-        existing.lastSeen = Date.now();
+        existing.bbox = t.bbox;
+        existing.speed = t.speed !== undefined ? t.speed : existing.speed;
+        existing.velocity_kmh = t.velocity_kmh;
+        existing.velocity_mps = t.velocity_mps;
+        existing.acceleration_mps2 = t.acceleration_mps2;
+        existing.world_pos = t.world_pos;
+        existing.quality_flag = t.quality_flag || existing.quality_flag;
+        existing.is_calibrated = t.is_calibrated || existing.is_calibrated;
+        existing.speed_unit = t.speed_unit || existing.speed_unit;
+        existing.heading = t.heading !== undefined ? t.heading : existing.heading;
+        existing.duration = t.duration || existing.duration;
+        existing.distance_travelled_m = t.distance_travelled_m || existing.distance_travelled_m;
+        existing.fine_grained_class = t.fine_grained_class || existing.fine_grained_class;
+        existing.fine_grained_conf = t.fine_grained_conf || existing.fine_grained_conf;
+        existing.lastUpdate = Date.now();
 
         if (t.trail && t.trail.length > 0) {
           existing.trail = t.trail;
-        } else {
+        } else if (t.centroid) {
           existing.trail.push(t.centroid);
-          if (existing.trail.length > 100) existing.trail.shift();
+          if (existing.trail.length > 150) existing.trail.shift();
         }
       }
     }
@@ -199,129 +282,52 @@ class TrajectoryMapVisualizer {
     if (!this.hasAutoFitted && this.tracks.size > 0) {
       this.autoFit();
       this.hasAutoFitted = true;
-    } else {
-      this.render();
     }
+
+    this.render();
   }
 
-  loadFullTrajectories(trajectoryList) {
+  loadPersistedTrajectories(trajectories) {
+    if (!Array.isArray(trajectories)) return;
     this.tracks.clear();
-    for (const t of trajectoryList) {
-      const trail = t.trail && t.trail.length > 0 ? t.trail : [t.centroid];
+    for (const t of trajectories) {
       this.tracks.set(t.id, {
         id: t.id,
-        class: t.class,
-        speed: t.speed || 0.0,
-        heading: t.heading || 0.0,
+        class: t.class || "CAR",
+        fine_grained_class: t.fine_grained_class || "Car",
+        confidence: t.confidence || 0.9,
         centroid: t.centroid,
-        trail: trail,
-        lastSeen: Date.now()
+        bbox: t.bbox,
+        speed: t.speed || 0,
+        velocity_kmh: t.velocity_kmh,
+        velocity_mps: t.velocity_mps,
+        acceleration_mps2: t.accel_mps2 || t.acceleration_mps2,
+        world_pos: (t.world_x !== undefined && t.world_y !== undefined) ? [t.world_x, t.world_y] : null,
+        quality_flag: t.quality_flag || "VALID_HIGH_CONFIDENCE",
+        heading: t.heading || 0,
+        duration: t.duration || 0,
+        distance_travelled_m: t.total_distance_m || 0,
+        trail: t.trail || (t.centroid ? [t.centroid] : []),
+        lastUpdate: Date.now()
       });
     }
     this.autoFit();
-  }
-
-  autoFit(padding = 48) {
-    if (!this.canvas.width) return;
-
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-
-    if (this.tracks.size > 0) {
-      for (const t of this.tracks.values()) {
-        if (t.trail && t.trail.length > 0) {
-          for (const pt of t.trail) {
-            if (pt[0] < minX) minX = pt[0];
-            if (pt[0] > maxX) maxX = pt[0];
-            if (pt[1] < minY) minY = pt[1];
-            if (pt[1] > maxY) maxY = pt[1];
-          }
-        } else if (t.centroid) {
-          if (t.centroid[0] < minX) minX = t.centroid[0];
-          if (t.centroid[0] > maxX) maxX = t.centroid[0];
-          if (t.centroid[1] < minY) minY = t.centroid[1];
-          if (t.centroid[1] > maxY) maxY = t.centroid[1];
-        }
-      }
-    }
-
-    // Fallback to background image dimensions if tracks are empty or small
-    if (!isFinite(minX) || !isFinite(maxX) || (maxX - minX) < 10) {
-      minX = 0;
-      maxX = this.bgWidth || 640;
-      minY = 0;
-      maxY = this.bgHeight || 480;
-    }
-
-    const dataW = Math.max(80, maxX - minX);
-    const dataH = Math.max(80, maxY - minY);
-
-    const availableW = Math.max(100, this.canvas.width - padding * 2);
-    const availableH = Math.max(100, this.canvas.height - padding * 2);
-
-    const scaleX = availableW / dataW;
-    const scaleY = availableH / dataH;
-    this.scale = Math.min(scaleX, scaleY);
-
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    this.panX = this.canvas.width / 2 - centerX * this.scale;
-    this.panY = this.canvas.height / 2 - centerY * this.scale;
-
     this.render();
   }
 
-  focusTrack(trackId) {
-    const t = this.tracks.get(trackId);
-    if (!t || !t.centroid) return;
-
-    this.selectedTrackId = trackId;
-    const [cx, cy] = t.centroid;
-
-    this.scale = Math.max(1.2, this.scale);
-    this.panX = this.canvas.width / 2 - cx * this.scale;
-    this.panY = this.canvas.height / 2 - cy * this.scale;
-    this.render();
-  }
-
-  setSelectedTrack(trackId) {
-    this.selectedTrackId = trackId;
-    this.focusTrack(trackId);
-  }
-
-  resetView() {
-    this.hasAutoFitted = false;
-    this.autoFit();
-  }
-
-  _checkClickHit(x, y) {
-    let closestId = null;
-    let minDist = 30.0 / this.scale;
-
-    for (const [id, t] of this.tracks.entries()) {
-      if (!t.centroid) continue;
-      const dx = t.centroid[0] - x;
-      const dy = t.centroid[1] - y;
-      const dist = Math.hypot(dx, dy);
-      if (dist < minDist) {
-        minDist = dist;
-        closestId = id;
-      }
-    }
-
-    if (closestId !== null) {
-      this.selectedTrackId = closestId;
-      if (window.onTrackSelected) window.onTrackSelected(closestId);
-    }
+  clear() {
+    this.tracks.clear();
+    this.selectedTrackId = null;
+    this.calibPoints = [];
     this.render();
   }
 
   _getSpeedColor(speed) {
-    if (speed < 4.0) return "#F43F5E"; // Crimson: Stopped / Congested
-    if (speed < 15.0) return "#FB923C"; // Orange: Slow
-    if (speed < 30.0) return "#00E5FF"; // Cyan: Moderate
-    return "#C8F23A"; // Lime: Fast flow
+    if (speed < 10) return "#00E5FF";      // Cyan (Slow)
+    if (speed < 25) return "#00FFB2";      // Green
+    if (speed < 45) return "#C8F23A";      // Yellow-Green
+    if (speed < 70) return "#FB923C";      // Orange
+    return "#F43F5E";                      // Red (High Speed)
   }
 
   render() {
@@ -331,52 +337,53 @@ class TrajectoryMapVisualizer {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Save context transform
+    // Background Canvas Styling
+    ctx.fillStyle = "#090D16";
+    ctx.fillRect(0, 0, w, h);
+
     ctx.save();
     ctx.translate(this.panX, this.panY);
     ctx.scale(this.scale, this.scale);
 
-    // ── LAYER 1: Aerial Video Background Underlay ────────────────────────────
+    // ── LAYER 1: Tactical Grid ───────────────────────────────────────────────
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
+    ctx.lineWidth = 1 / this.scale;
+    const gridSize = 100;
+    const startX = Math.floor(-this.panX / this.scale / gridSize) * gridSize;
+    const endX = startX + (w / this.scale) + gridSize * 2;
+    const startY = Math.floor(-this.panY / this.scale / gridSize) * gridSize;
+    const endY = startY + (h / this.scale) + gridSize * 2;
+
+    ctx.beginPath();
+    for (let x = startX; x < endX; x += gridSize) {
+      ctx.moveTo(x, startY);
+      ctx.lineTo(x, endY);
+    }
+    for (let y = startY; y < endY; y += gridSize) {
+      ctx.moveTo(startX, y);
+      ctx.lineTo(endX, y);
+    }
+    ctx.stroke();
+
+    // ── LAYER 2: Video Overlay ───────────────────────────────────────────────
     if (this.layerVideoOverlay && this.bgImage) {
       ctx.save();
       ctx.globalAlpha = this.videoOpacity;
       try {
         ctx.drawImage(this.bgImage, 0, 0, this.bgWidth, this.bgHeight);
-        // Border around video frame
-        ctx.strokeStyle = "rgba(0, 229, 255, 0.4)";
-        ctx.lineWidth = 1.5 / this.scale;
-        ctx.strokeRect(0, 0, this.bgWidth, this.bgHeight);
       } catch (e) {}
       ctx.restore();
+
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.35)";
+      ctx.lineWidth = 1.5 / this.scale;
+      ctx.strokeRect(0, 0, this.bgWidth, this.bgHeight);
     }
 
-    // ── Coordinate Grid ──────────────────────────────────────────────────────
-    ctx.strokeStyle = "rgba(56, 189, 248, 0.07)";
-    ctx.lineWidth = 1 / this.scale;
-    const gridSize = 64;
-    const minX = -this.panX / this.scale - gridSize;
-    const maxX = (w - this.panX) / this.scale + gridSize;
-    const minY = -this.panY / this.scale - gridSize;
-    const maxY = (h - this.panY) / this.scale + gridSize;
-
-    for (let x = Math.floor(minX / gridSize) * gridSize; x <= maxX; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, minY);
-      ctx.lineTo(x, maxY);
-      ctx.stroke();
-    }
-    for (let y = Math.floor(minY / gridSize) * gridSize; y <= maxY; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(minX, y);
-      ctx.lineTo(maxX, y);
-      ctx.stroke();
-    }
-
-    // ── LAYER 2: Traffic Density Heatmap ─────────────────────────────────────
+    // ── LAYER 3: Density Heatmap ─────────────────────────────────────────────
     if (this.layerHeatmap) {
       ctx.save();
       ctx.globalCompositeOperation = "screen";
-      for (const t of this.tracks.values()) {
+      for (const [id, t] of this.tracks.entries()) {
         if (this.classFilters.has(t.class)) continue;
         const pts = t.trail || [t.centroid];
         for (let i = 0; i < pts.length; i += 2) {
@@ -395,14 +402,15 @@ class TrajectoryMapVisualizer {
       ctx.restore();
     }
 
-    // ── LAYER 3: Trajectory Trails (Taxonomy or Speed Mode) ───────────────────
+    // ── LAYER 4: Trajectory Trails (Segment-Gated) ───────────────────────────
     if (this.layerTrails) {
       for (const [id, t] of this.tracks.entries()) {
         if (this.classFilters.has(t.class)) continue;
         if (!t.trail || t.trail.length < 2) continue;
 
         const isSelected = (id === this.selectedTrackId);
-        const baseColor = this.layerSpeed ? this._getSpeedColor(t.speed) : (this.colors[t.class] || "#38BDF8");
+        const fineCls = t.fine_grained_class || "Car";
+        const baseColor = this.layerSpeed ? this._getSpeedColor(t.speed) : (this.fineColors[fineCls] || this.colors[t.class] || "#38BDF8");
 
         ctx.strokeStyle = isSelected ? "#FFFFFF" : baseColor;
         ctx.lineWidth = isSelected ? 3.5 / this.scale : (this.layerSpeed ? 2.5 / this.scale : 2.0 / this.scale);
@@ -441,7 +449,7 @@ class TrajectoryMapVisualizer {
           ctx.stroke();
         }
 
-        // Trail point markers (spaced evenly)
+        // Trail point markers
         for (let i = 0; i < t.trail.length; i += 4) {
           const pt = t.trail[i];
           ctx.fillStyle = isSelected ? "#FFFFFF" : baseColor;
@@ -452,7 +460,7 @@ class TrajectoryMapVisualizer {
       }
     }
 
-    // ── LAYER 4: Conflict & Hazard Hotspots ──────────────────────────────────
+    // ── LAYER 5: Conflict & Hazard Hotspots ──────────────────────────────────
     if (this.layerConflicts) {
       const conflictPoints = [];
       const trackArr = Array.from(this.tracks.values()).filter(t => !this.classFilters.has(t.class));
@@ -462,6 +470,7 @@ class TrajectoryMapVisualizer {
           const t1 = trackArr[i];
           const t2 = trackArr[j];
           if (!t1.centroid || !t2.centroid) continue;
+
           const dist = Math.hypot(t1.centroid[0] - t2.centroid[0], t1.centroid[1] - t2.centroid[1]);
           if (dist < 45.0) {
             conflictPoints.push({
@@ -491,14 +500,51 @@ class TrajectoryMapVisualizer {
       }
     }
 
-    // ── LAYER 5: Centroid Points, Direction Vectors & Labels ──────────────────
+    // ── LAYER 6: Ground-Plane Calibration Quadrangle Overlay ──────────────────
+    if (this.calibPoints && this.calibPoints.length > 0) {
+      ctx.strokeStyle = "#00E5FF";
+      ctx.lineWidth = 2.5 / this.scale;
+      ctx.setLineDash([6 / this.scale, 4 / this.scale]);
+
+      ctx.beginPath();
+      ctx.moveTo(this.calibPoints[0][0], this.calibPoints[0][1]);
+      for (let i = 1; i < this.calibPoints.length; i++) {
+        ctx.lineTo(this.calibPoints[i][0], this.calibPoints[i][1]);
+      }
+      if (this.calibPoints.length === 4) {
+        ctx.closePath();
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      if (this.calibPoints.length === 4) {
+        ctx.fillStyle = "rgba(0, 229, 255, 0.12)";
+        ctx.fill();
+      }
+
+      // Point Badges (P0, P1, P2, P3)
+      for (let i = 0; i < this.calibPoints.length; i++) {
+        const [px, py] = this.calibPoints[i];
+        ctx.fillStyle = "#00E5FF";
+        ctx.beginPath();
+        ctx.arc(px, py, 6 / this.scale, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = "#090D16";
+        ctx.font = `bold ${Math.max(9, Math.round(10 / this.scale))}px monospace`;
+        ctx.fillText(`P${i}`, px - 3 / this.scale, py + 3.5 / this.scale);
+      }
+    }
+
+    // ── LAYER 7: Centroid Points, Direction Vectors & Fine-Grained Badges ────
     for (const [id, t] of this.tracks.entries()) {
       if (this.classFilters.has(t.class)) continue;
       if (!t.centroid) continue;
 
       const [cx, cy] = t.centroid;
       const isSelected = (id === this.selectedTrackId);
-      const color = this.layerSpeed ? this._getSpeedColor(t.speed) : (this.colors[t.class] || "#38BDF8");
+      const fineCls = t.fine_grained_class || "Car";
+      const color = this.layerSpeed ? this._getSpeedColor(t.speed) : (this.fineColors[fineCls] || this.colors[t.class] || "#38BDF8");
 
       // Centroid Circle
       ctx.fillStyle = color;
@@ -514,69 +560,54 @@ class TrajectoryMapVisualizer {
         ctx.stroke();
       }
 
-      // Velocity Direction Arrow
-      if (this.layerArrows && t.speed > 1.0) {
+      // Directional Vector Arrow
+      if (this.layerArrows && t.heading !== undefined) {
         const rad = (t.heading * Math.PI) / 180.0;
-        const arrowLen = (Math.min(32, Math.max(14, t.speed * 0.9))) / this.scale;
-        const headX = cx + Math.cos(rad) * arrowLen;
-        const headY = cy + Math.sin(rad) * arrowLen;
+        const arrowLen = Math.max(14, Math.min(32, t.speed * 0.45)) / this.scale;
+        const endX = cx + Math.cos(rad) * arrowLen;
+        const endY = cy + Math.sin(rad) * arrowLen;
 
-        ctx.strokeStyle = isSelected ? "#FFFFFF" : color;
-        ctx.lineWidth = (isSelected ? 2.5 : 1.8) / this.scale;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = (isSelected ? 2.5 : 1.5) / this.scale;
         ctx.beginPath();
         ctx.moveTo(cx, cy);
-        ctx.lineTo(headX, headY);
+        ctx.lineTo(endX, endY);
         ctx.stroke();
+
+        const headLen = 5 / this.scale;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.moveTo(endX, endY);
+        ctx.lineTo(endX - headLen * Math.cos(rad - Math.PI / 6), endY - headLen * Math.sin(rad - Math.PI / 6));
+        ctx.lineTo(endX - headLen * Math.cos(rad + Math.PI / 6), endY - headLen * Math.sin(rad + Math.PI / 6));
+        ctx.closePath();
+        ctx.fill();
       }
 
-      // Text Badge
+      // Tactical Badge: #ID Fine-Class & Speed (km/h)
       if (this.showLabels || isSelected) {
-        const fontSize = Math.max(10, Math.min(13, Math.round(11 / this.scale)));
-        ctx.font = `bold ${fontSize}px monospace`;
-        const speedText = this.layerSpeed ? ` ${t.speed.toFixed(0)}px/s` : "";
-        const label = `#${t.id} ${t.class}${speedText}`;
-        const textWidth = ctx.measureText(label).width;
+        const speedText = t.velocity_kmh !== undefined && t.velocity_kmh !== null ? `${t.velocity_kmh} km/h` : `${t.speed} ${t.speed_unit || 'px/s'}`;
+        const label = `#${id} ${fineCls} | ${speedText}`;
+        const fontSize = Math.max(8.5, Math.round((isSelected ? 11 : 9.5) / this.scale));
+        ctx.font = `${isSelected ? 'bold ' : ''}${fontSize}px "JetBrains Mono", monospace`;
 
-        ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
-        ctx.fillRect(cx + 8 / this.scale, cy - 14 / this.scale, textWidth + 6 / this.scale, fontSize + 4 / this.scale);
+        const tw = ctx.measureText(label).width;
+        const th = fontSize + 4 / this.scale;
 
-        ctx.fillStyle = isSelected ? "#00E5FF" : (this.layerSpeed ? color : "#F8FAFC");
-        ctx.fillText(label, cx + 11 / this.scale, cy - 2 / this.scale);
+        ctx.fillStyle = isSelected ? "rgba(255, 255, 255, 0.95)" : "rgba(9, 13, 22, 0.85)";
+        ctx.fillRect(cx + 8 / this.scale, cy - th / 2, tw + 6 / this.scale, th);
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1 / this.scale;
+        ctx.strokeRect(cx + 8 / this.scale, cy - th / 2, tw + 6 / this.scale, th);
+
+        ctx.fillStyle = isSelected ? "#090D16" : color;
+        ctx.fillText(label, cx + 11 / this.scale, cy + th * 0.28);
       }
     }
 
     ctx.restore();
-
-    if (this.tracks.size === 0 && !this.bgImage) {
-      ctx.fillStyle = "rgba(100, 116, 139, 0.7)";
-      ctx.font = "12px monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("NO TRAJECTORIES ACTIVE — LAUNCH VIDEO PROCESSING TO GENERATE TRAILS", w / 2, h / 2);
-      ctx.textAlign = "start";
-    }
-  }
-
-  clear() {
-    this.tracks.clear();
-    this.selectedTrackId = null;
-    this.bgImage = null;
-    this.scale = 1.0;
-    this.panX = 0;
-    this.panY = 0;
-    this.hasAutoFitted = false;
-    this.render();
-  }
-
-  resetView() {
-    this.scale = 1.0;
-    this.panX = 0;
-    this.panY = 0;
-    this.hasAutoFitted = false;
-    this.render();
-  }
-
-  reset() {
-    this.clear();
   }
 }
 
+window.TrajectoryMapVisualizer = TrajectoryMapVisualizer;

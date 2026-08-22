@@ -1,8 +1,8 @@
 """
-FastAPI Request & Response Pydantic Schemas
+FastAPI Request & Response Pydantic Schemas (Level 1 + Level 2 Extended Models)
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 
 
@@ -33,6 +33,23 @@ class JobStatusResponse(BaseModel):
     output_files: Dict[str, str] = {}
     summary: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
+
+
+class CalibrationRequest(BaseModel):
+    image_points: List[List[float]] = Field(..., min_length=4, max_length=4, description="4 reference points in image pixels [[u0,v0], [u1,v1], [u2,v2], [u3,v3]]")
+    road_width_m: Optional[float] = Field(None, ge=1.0, description="Real-world road width in meters")
+    road_length_m: Optional[float] = Field(None, ge=1.0, description="Real-world road length in meters")
+    world_points: Optional[List[List[float]]] = Field(None, min_length=4, max_length=4, description="Explicit 4 ground coordinates [[x0,y0], [x1,y1], [x2,y2], [x3,y3]] in meters")
+
+
+class CalibrationResponse(BaseModel):
+    status: str
+    is_calibrated: bool
+    rms_error_m: float
+    road_width_m: Optional[float] = None
+    road_length_m: Optional[float] = None
+    image_points: Optional[List[List[float]]] = None
+    world_points: Optional[List[List[float]]] = None
 
 
 class GimbalRequest(BaseModel):

@@ -1,35 +1,39 @@
 """
-Trajectory Engine Module
+Trajectory Engine Module (Level 1 Baseline + Level 2 Extended Kinematics)
 Manages live spatial-temporal trajectories, historical trails, speed smoothing,
-gap interpolation, outlier jump rejection, and persistence.
+fine-grained classification caching, ground-plane kinematics, and quality control.
 """
 
 import math
 from typing import Dict, List, Optional, Tuple
 from .models import TrackTrajectory, TrajectoryPoint
-from .speed_estimator import BaseSpeedEstimator, PixelSpeedEstimator, SpeedEstimate
+from .speed_estimator import BaseSpeedEstimator, PixelSpeedEstimator, GroundPlaneSpeedEstimator, KinematicState
+from .homography import RoadPlaneHomography
+from .quality import KinematicQualityFlag
 from .storage import TrajectoryStorage
 from ..perception.tracking.base import TrackedObject
+from ..perception.classification.fine_grained import FineGrainedClassifier, FineGrainedClassification
 
 
 class TrajectoryEngine:
     """
     Stateful trajectory engine managing moving trails, persistent object histories,
-    kinematic smoothing, outlier suppression, and gap interpolation.
+    kinematic smoothing, fine-grained classification, and metric kinematics.
     """
 
     def __init__(
         self,
-        max_history_points: int = 120,
+        max_history_points: int = 150,
         speed_estimator: Optional[BaseSpeedEstimator] = None,
         storage: Optional[TrajectoryStorage] = None,
         speed_smoothing_window: int = 5,
-        ema_alpha: float = 0.70,          # Weight for new measurement (0.70 = 30% smoothing)
-        max_jump_px: float = 120.0,       # Maximum allowed displacement per frame before clamping
-        min_confirmed_hits: int = 1,      # Minimum consecutive detections before confirmation
+        ema_alpha: float = 0.70,          # Weight for new measurement
+        max_jump_px: float = 120.0,       # Maximum allowed displacement per frame
+        min_confirmed_hits: int = 1,      # Minimum consecutive detections
     ):
         self.max_history_points = max_history_points
         self.speed_estimator = speed_estimator or PixelSpeedEstimator()
+        self.classifier = FineGrainedClassifier()
         self.storage = storage or TrajectoryStorage()
         self.speed_smoothing_window = speed_smoothing_window
         self.ema_alpha = ema_alpha
@@ -39,6 +43,10 @@ class TrajectoryEngine:
         self.tracks: Dict[int, TrackTrajectory] = {}
         self.active_track_ids: set = set()
 
+    def set_calibration(self, homography: RoadPlaneHomography) -> None:
+        """Dynamically applies ground-plane homography calibration to the engine."""
+        self.speed_estimator = GroundPlaneSpeedEstimator(homography)
+
     def update_tracks(
         self,
         active_objects: List[TrackedObject],
@@ -47,7 +55,7 @@ class TrajectoryEngine:
     ) -> List[TrackTrajectory]:
         """
         Updates internal trajectory database with current frame's tracking output.
-        Applies EMA centroid smoothing, outlier gating, and occlusion gap interpolation.
+        Applies EMA centroid smoothing, outlier gating, fine-grained classification, and kinematics.
         """
         current_frame_ids = set()
 
@@ -58,12 +66,23 @@ class TrajectoryEngine:
             raw_cx, raw_cy = obj.centroid
             smoothed_cx, smoothed_cy = raw_cx, raw_cy
 
+            # ── Step 1: Second-Stage Fine-Grained Classification ─────────────
+            fine_result: FineGrainedClassification = self.classifier.classify_track(
+                track_id=tid,
+                raw_class_name=obj.raw_class,
+                detection_conf=obj.confidence,
+                bbox=obj.bbox,
+                speed_estimate=obj.speed_estimate,
+            )
+
             if tid not in self.tracks:
                 # Initialize new candidate trajectory
                 traj = TrackTrajectory(
                     track_id=tid,
                     raw_class=obj.raw_class,
                     normalized_class=obj.normalized.normalized_class,
+                    fine_grained_class=fine_result.fine_class.value,
+                    fine_grained_confidence=fine_result.confidence,
                     confidence=obj.confidence,
                     first_seen=timestamp,
                     last_seen=timestamp,
@@ -76,14 +95,19 @@ class TrajectoryEngine:
                     current_centroid=(smoothed_cx, smoothed_cy),
                     current_speed=obj.speed_estimate,
                     current_heading=obj.heading,
+                    total_distance_meters=0.0,
                     history=[],
                 )
                 self.tracks[tid] = traj
             else:
                 traj = self.tracks[tid]
+                # Update fine-grained classification
+                traj.fine_grained_class = fine_result.fine_class.value
+                traj.fine_grained_confidence = fine_result.confidence
+
                 last_pt = traj.history[-1] if traj.history else None
 
-                # ── Step 1: Outlier Jump Gating & Track History Discontinuity Check ──
+                # ── Step 2: Outlier Jump Gating & Track Discontinuity Check ───
                 if last_pt is not None:
                     dx = raw_cx - last_pt.centroid[0]
                     dy = raw_cy - last_pt.centroid[1]
@@ -99,7 +123,7 @@ class TrajectoryEngine:
                         smoothed_cx = raw_cx
                         smoothed_cy = raw_cy
                     else:
-                        # ── Step 2: Gap Interpolation for Missed/Occluded Frames ───
+                        # Gap Interpolation for Missed/Occluded Frames
                         if 1 < frames_elapsed <= 5:
                             for f_step in range(1, frames_elapsed):
                                 frac = f_step / float(frames_elapsed)
@@ -115,6 +139,8 @@ class TrajectoryEngine:
                                     speed_estimate=last_pt.speed_estimate,
                                     heading=last_pt.heading,
                                     confidence=obj.confidence * 0.8,
+                                    fine_grained_class=traj.fine_grained_class,
+                                    fine_grained_confidence=traj.fine_grained_confidence,
                                 )
                                 traj.history.append(interp_pt)
 
@@ -130,42 +156,49 @@ class TrajectoryEngine:
                 traj.current_centroid = (smoothed_cx, smoothed_cy)
                 traj.confidence = max(traj.confidence, obj.confidence)
 
-            # ── Step 3: Compute Smoothed Kinematics (Speed & Heading) ───────
-            speed_val = obj.speed_estimate
-            heading_val = obj.heading
+            # ── Step 3: Metric Kinematics Computation ────────────────────────
+            prev_bbox = traj.history[-1].bbox if traj.history else None
+            prev_velocity_mps = traj.current_velocity_mps
+            dt = max(0.001, (timestamp - traj.history[-1].timestamp)) if traj.history else 0.033
 
-            if traj.history:
-                last_pt = traj.history[-1]
-                dt = max(0.001, timestamp - last_pt.timestamp)
-                speed_est: SpeedEstimate = self.speed_estimator.estimate(
-                    (smoothed_cx, smoothed_cy), last_pt.centroid, dt
-                )
-                speed_val = speed_est.value
+            kinematics: KinematicState = self.speed_estimator.estimate_kinematics(
+                current_bbox=obj.bbox,
+                prev_bbox=prev_bbox,
+                dt=dt,
+                prev_velocity_mps=prev_velocity_mps,
+                history_length=len(traj.history) + 1,
+            )
 
-                # Smooth speed with trailing window
-                recent_speeds = [p.speed_estimate for p in traj.history[-self.speed_smoothing_window:]] + [speed_val]
-                smoothed_speed = sum(recent_speeds) / len(recent_speeds)
-                speed_val = round(smoothed_speed, 2)
+            # Update TrackTrajectory state
+            traj.is_calibrated = kinematics.is_calibrated
+            traj.speed_unit = kinematics.speed_unit
+            traj.current_speed = kinematics.speed_value
+            traj.current_velocity_mps = kinematics.velocity_mps
+            traj.current_velocity_kmh = kinematics.velocity_kmh
+            traj.current_acceleration_mps2 = kinematics.acceleration_mps2
+            traj.current_world_pos = kinematics.world_pos
+            traj.current_heading = kinematics.heading_deg if kinematics.heading_deg > 0 else traj.current_heading
+            traj.quality_flag = kinematics.quality_assessment.flag.value
+            traj.total_distance_meters += kinematics.distance_increment_m
 
-                # Smooth heading
-                dx = smoothed_cx - last_pt.centroid[0]
-                dy = smoothed_cy - last_pt.centroid[1]
-                if math.hypot(dx, dy) > 1.5:
-                    rad = math.atan2(dy, dx)
-                    heading_val = round((math.degrees(rad) + 360.0) % 360.0, 1)
-
-            traj.current_speed = speed_val
-            traj.current_heading = heading_val
-
+            # Create TrajectoryPoint observation
             point = TrajectoryPoint(
                 frame_index=frame_index,
                 timestamp=timestamp,
                 bbox=obj.bbox,
                 centroid=(smoothed_cx, smoothed_cy),
                 velocity=obj.velocity,
-                speed_estimate=speed_val,
-                heading=heading_val,
+                speed_estimate=kinematics.speed_value,
+                heading=traj.current_heading,
                 confidence=obj.confidence,
+                ground_point=kinematics.world_pos,
+                velocity_mps=kinematics.velocity_mps,
+                velocity_kmh=kinematics.velocity_kmh,
+                acceleration_mps2=kinematics.acceleration_mps2,
+                distance_increment_m=kinematics.distance_increment_m,
+                quality_flag=kinematics.quality_assessment.flag.value,
+                fine_grained_class=traj.fine_grained_class,
+                fine_grained_confidence=traj.fine_grained_confidence,
             )
             traj.history.append(point)
 
@@ -179,7 +212,6 @@ class TrajectoryEngine:
                 traj.is_active = False
 
         self.active_track_ids = current_frame_ids
-        # Return confirmed trajectories (filters out 1-2 frame transient noise)
         return [t for t in self.tracks.values() if t.total_frames >= self.min_confirmed_hits or t.is_active]
 
     def get_active_trajectories(self) -> List[TrackTrajectory]:
@@ -203,6 +235,10 @@ class TrajectoryEngine:
             for pt in track.history:
                 self.storage.save_trajectory_point(track.track_id, pt)
 
-    def reset(self) -> None:
+    def clear(self) -> None:
         self.tracks.clear()
         self.active_track_ids.clear()
+        self.classifier.clear()
+
+    def reset(self) -> None:
+        self.clear()

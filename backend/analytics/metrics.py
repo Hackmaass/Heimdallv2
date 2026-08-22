@@ -1,9 +1,9 @@
 """
-Traffic Analytics Metric Definitions
+Traffic Analytics Metric Definitions (Level 1 + Level 2 Extended Kinematic Metrics)
 """
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from ..perception.classification.taxonomy import RoadUserClass
 
 
@@ -13,6 +13,13 @@ class ClassDistribution:
     percentages: Dict[str, float]
     total_active: int
     total_cumulative: int
+
+
+@dataclass
+class FineGrainedDistribution:
+    counts: Dict[str, int]
+    percentages: Dict[str, float]
+    total_active: int
 
 
 @dataclass
@@ -32,3 +39,12 @@ class SpeedMetric:
     fastest_track_id: Optional[int]
     fastest_speed: float
     is_calibrated: bool
+
+
+@dataclass
+class CategorySpeedBreakdown:
+    category: str
+    count: int
+    avg_speed: float
+    max_speed: float
+    unit: str

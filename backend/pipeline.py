@@ -1,61 +1,63 @@
 """
-Heimdallv2 End-to-End Computer Vision & Tracking Pipeline
-Orchestrates: Ingestion -> Perception (BoT-SORT / ByteTrack) -> Trajectory Engine -> Telemetry Fusion -> Output Exporters
+Heimdallv2 Unified Perception, Tracking & Telemetry Pipeline
+End-to-End processing pipeline integrating:
+- Video Ingestion (File/RTSP/Webcam)
+- High-Resolution SAHI & VisDrone Detection
+- BoT-SORT / ByteTrack Tracking with GMC & Appearance Matching
+- Level 2 Fine-Grained Classification & Metric Kinematics (Homography)
+- OSD Annotation Renderer (with Metric Velocity and Fine-Grained Tags)
+- WebSocket Live Broadcasting
 """
 
-import os
-import time
-import math
 import cv2
 import numpy as np
-from typing import Optional, Callable, Dict, Any, List
-from dataclasses import dataclass, field
+import time
+import os
+import math
+from typing import Optional, Dict, Any, Callable, List
 
 from .ingestion.base import VideoSource, FrameData
-from .ingestion.file_source import FileSource
 from .perception.tracking.base import BaseTracker, TrackingResult
+from .perception.tracking.sahi_botsort_tracker import SAHIBoTSORTTracker
 from .perception.tracking.botsort_tracker import BoTSORTTracker
 from .perception.tracking.bytetrack_tracker import ByteTrackTracker
-from .perception.tracking.sahi_botsort_tracker import SAHIBoTSORTTracker
+from .perception.classification.taxonomy import CLASS_PALETTE, RoadUserClass
+from .perception.classification.fine_grained import FINE_PALETTE, FineGrainedClass
 from .trajectories.engine import TrajectoryEngine
-from .trajectories.storage import TrajectoryStorage
+from .trajectories.homography import RoadPlaneHomography
 from .trajectories.models import TrackTrajectory
+from .trajectories.storage import TrajectoryStorage
 from .telemetry.base import TelemetryProvider, DroneTelemetry
 from .telemetry.mock import MockTelemetryProvider
-from .telemetry.flytbase_telemetry import FlytBaseTelemetryProvider
-from .telemetry.embedded import EmbeddedTelemetryProvider
 from .analytics.engine import TrafficAnalyticsEngine
 
 
-@dataclass
 class PipelineStatus:
-    video_id: str
-    status: str = "QUEUED"  # "QUEUED", "PROCESSING", "COMPLETED", "FAILED"
-    progress_percent: float = 0.0
-    current_frame: int = 0
-    total_frames: int = 0
-    fps_processing: float = 0.0
-    active_tracks: int = 0
-    total_unique_tracks: int = 0
-    error_message: Optional[str] = None
-    output_files: Dict[str, str] = field(default_factory=dict)
-    summary: Optional[Dict[str, Any]] = None
+    def __init__(self, video_id: str):
+        self.video_id = video_id
+        self.status = "IDLE"  # IDLE, PROCESSING, COMPLETED, ERROR
+        self.current_frame = 0
+        self.total_frames = 0
+        self.progress_percent = 0.0
+        self.fps_processing = 0.0
+        self.active_tracks = 0
+        self.total_unique_tracks = 0
+        self.error_message: Optional[str] = None
 
 
 class HeimdallPipeline:
     """
-    Core Pipeline Orchestrator.
-    Processes video streams or files and produces persistent tracks, trajectory files, and annotated video.
+    Core pipeline orchestrator for Heimdallv2.
     """
 
     def __init__(
         self,
         tracker: Optional[BaseTracker] = None,
         tracker_type: str = "botsort",
-        model_path: str = "yolov8n.pt",
+        model_path: str = "yolov8s-visdrone.pt",
         confidence_threshold: float = 0.25,
-        iou_threshold: float = 0.50,
-        img_size: int = 640,
+        iou_threshold: float = 0.45,
+        img_size: int = 1280,
         device: str = "auto",
         telemetry_provider: Optional[TelemetryProvider] = None,
         storage: Optional[TrajectoryStorage] = None,
@@ -102,6 +104,12 @@ class HeimdallPipeline:
 
         self.storage = storage or TrajectoryStorage(db_path=os.path.join(output_dir, "heimdall.db"))
         self.trajectory_engine = TrajectoryEngine(storage=self.storage)
+
+        # Auto-load homography calibration if present
+        homography = RoadPlaneHomography.load("configs/calibration.json")
+        if homography.is_calibrated:
+            self.trajectory_engine.set_calibration(homography)
+
         self.telemetry_provider = telemetry_provider or MockTelemetryProvider()
         self.analytics_engine = TrafficAnalyticsEngine()
 
@@ -118,35 +126,25 @@ class HeimdallPipeline:
         """
         status = status_container or PipelineStatus(video_id=video_id)
         status.status = "PROCESSING"
-        status.progress_percent = 0.0
 
-        video_source.open()
         total_frames = video_source.total_frames
-        if max_frames and max_frames > 0:
-            total_frames = min(total_frames, max_frames) if total_frames > 0 else max_frames
-        status.total_frames = total_frames
-        fps = video_source.fps or 30.0
-        width, height = video_source.resolution
+        status.total_frames = min(total_frames, max_frames) if max_frames else total_frames
 
-        # Output video writer (Uses browser-compatible H.264 encoding)
+        fps = video_source.fps or 30.0
+        width = video_source.width or 1920
+        height = video_source.height or 1080
+
+        # Create video writer if enabled
         video_writer = None
         annotated_video_path = os.path.join(self.output_dir, f"{video_id}_annotated.mp4")
-        if self.save_annotated_video and width > 0 and height > 0:
-            # 1. Try Windows Media Foundation hardware H.264 (Native web browser compatibility)
+        if self.save_annotated_video:
             try:
-                video_writer = cv2.VideoWriter(annotated_video_path, cv2.CAP_MSMF, cv2.VideoWriter_fourcc(*"H264"), fps, (width, height))
+                fourcc = cv2.VideoWriter_fourcc(*"avc1")
+                video_writer = cv2.VideoWriter(annotated_video_path, fourcc, fps, (width, height))
+                if not video_writer.isOpened():
+                    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                    video_writer = cv2.VideoWriter(annotated_video_path, fourcc, fps, (width, height))
             except Exception:
-                video_writer = None
-
-            # 2. Fallback to FFMPEG avc1
-            if video_writer is None or not video_writer.isOpened():
-                try:
-                    video_writer = cv2.VideoWriter(annotated_video_path, cv2.VideoWriter_fourcc(*"avc1"), fps, (width, height))
-                except Exception:
-                    video_writer = None
-
-            # 3. Fallback to standard mp4v
-            if video_writer is None or not video_writer.isOpened():
                 fourcc = cv2.VideoWriter_fourcc(*"mp4v")
                 video_writer = cv2.VideoWriter(annotated_video_path, fourcc, fps, (width, height))
 
@@ -175,7 +173,7 @@ class HeimdallPipeline:
                     timestamp=timestamp,
                 )
 
-                # 2. Trajectory Update
+                # 2. Trajectory & Kinematics Update
                 active_trajectories = self.trajectory_engine.update_tracks(
                     active_objects=tracking_result.tracks,
                     frame_index=frame_idx,
@@ -189,7 +187,7 @@ class HeimdallPipeline:
                     timestamp=timestamp,
                 )
 
-                # 4. Render Annotations onto Frame
+                # 4. Render Tactical Annotations onto Frame
                 annotated_frame = self._render_annotations(
                     frame=frame,
                     trajectories=active_trajectories,
@@ -247,26 +245,18 @@ class HeimdallPipeline:
                 total_frames=frame_counter,
                 tracks=all_tracks,
                 filepath=summary_path,
-            )
+            ) if hasattr(self.storage, 'export_summary_json') else {}
 
             status.status = "COMPLETED"
             status.progress_percent = 100.0
-            status.summary = summary_data
-            status.output_files = {
-                "annotated_video": annotated_video_path,
-                "tracks_jsonl": jsonl_path,
-                "tracks_csv": csv_path,
-                "trajectories_json": traj_path,
-                "summary_json": summary_path,
-                "database": self.storage.db_path,
-            }
 
         except Exception as e:
-            status.status = "FAILED"
+            status.status = "ERROR"
             status.error_message = str(e)
             if video_writer is not None:
                 video_writer.release()
             video_source.close()
+            raise e
 
         return status
 
@@ -281,8 +271,8 @@ class HeimdallPipeline:
         """
         Draws high-density tactical command annotations:
         - Polished bounding box with corner brackets
-        - Solid badge with Track ID & Class
-        - Historical trajectory motion trails
+        - Level 2 Multi-line Badge: #ID Fine-Class & Speed (km/h)
+        - Historical trajectory motion trails (with gap rejection)
         - Top drone OSD status banner
         """
         annotated = frame.copy()
@@ -293,9 +283,7 @@ class HeimdallPipeline:
             if not track.history or len(track.history) < 2 or track.total_frames < 2:
                 continue
 
-            color = track.normalized_class
             bgr = (56, 189, 248)  # default sky blue
-            from .perception.classification.taxonomy import CLASS_PALETTE
             if track.normalized_class in CLASS_PALETTE:
                 bgr = CLASS_PALETTE[track.normalized_class][1]
 
@@ -317,7 +305,6 @@ class HeimdallPipeline:
             x1, y1 = max(0, x1), max(0, y1)
             x2, y2 = min(w, x2), min(h, y2)
 
-            from .perception.classification.taxonomy import CLASS_PALETTE
             bgr = CLASS_PALETTE.get(track.normalized_class, ("#E2E8F0", (240, 232, 226)))[1]
 
             # Bounding box
@@ -330,19 +317,34 @@ class HeimdallPipeline:
             cv2.line(annotated, (x2, y2), (x2 - corner_len, y2), (255, 255, 255), 2)
             cv2.line(annotated, (x2, y2), (x2, y2 - corner_len), (255, 255, 255), 2)
 
-            # Label badge
-            label = f"#{track.track_id} {track.normalized_class.value} {int(track.confidence * 100)}%"
-            if track.is_uncertain:
-                label += " [?]"
+            # Level 2 Label badge: #ID Fine-Class & Speed
+            speed_str = f"{track.current_speed:.1f} {track.speed_unit}"
+            label_top = f"#{track.track_id} {track.fine_grained_class}"
+            label_bot = f"{speed_str}"
 
-            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
-            cv2.rectangle(annotated, (x1, max(0, y1 - th - 8)), (x1 + tw + 8, y1), bgr, -1)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            (tw1, th1), _ = cv2.getTextSize(label_top, font, 0.45, 1)
+            (tw2, th2), _ = cv2.getTextSize(label_bot, font, 0.40, 1)
+            badge_w = max(tw1, tw2) + 8
+            badge_h = th1 + th2 + 12
+
+            cv2.rectangle(annotated, (x1, max(0, y1 - badge_h)), (x1 + badge_w, y1), bgr, -1)
             cv2.putText(
                 annotated,
-                label,
-                (x1 + 4, max(th + 4, y1 - 4)),
-                cv2.FONT_HERSHEY_SIMPLEX,
+                label_top,
+                (x1 + 4, max(th1 + 2, y1 - th2 - 6)),
+                font,
                 0.45,
+                (0, 0, 0),
+                1,
+                cv2.LINE_AA,
+            )
+            cv2.putText(
+                annotated,
+                label_bot,
+                (x1 + 4, max(badge_h - 2, y1 - 2)),
+                font,
+                0.40,
                 (0, 0, 0),
                 1,
                 cv2.LINE_AA,
@@ -352,11 +354,11 @@ class HeimdallPipeline:
         cv2.rectangle(annotated, (0, 0), (w, 36), (15, 23, 42), -1)
         cv2.line(annotated, (0, 36), (w, 36), (56, 189, 248), 1)
 
+        calib_str = "METRIC [CALIBRATED]" if any(t.is_calibrated for t in trajectories) else "RELATIVE [px/s]"
         osd_text = (
             f"HEIMDALL-AI | GPS: {telemetry.latitude:.5f}, {telemetry.longitude:.5f} | "
             f"ALT: {telemetry.altitude_agl:.1f}m | HDG: {telemetry.heading_deg:.0f}deg | "
-            f"BAT: {telemetry.battery_percentage:.0f}% | ACTIVE TRACKS: {len(trajectories)} | "
-            f"FPS: {fps_val:.1f}"
+            f"ACTIVE: {len(trajectories)} | {calib_str} | FPS: {fps_val:.1f}"
         )
         cv2.putText(
             annotated,
@@ -378,7 +380,7 @@ class HeimdallPipeline:
         trajectories: List[TrackTrajectory],
         telemetry: DroneTelemetry,
     ) -> Dict[str, Any]:
-        """Constructs WebSocket JSON frame."""
+        """Constructs WebSocket JSON frame with Level 2 metric data."""
         return {
             "frame": frame_idx,
             "timestamp": round(timestamp, 3),
@@ -395,13 +397,23 @@ class HeimdallPipeline:
                 {
                     "id": t.track_id,
                     "class": t.normalized_class.value,
+                    "fine_grained_class": t.fine_grained_class,
+                    "fine_grained_conf": round(t.fine_grained_confidence, 2),
                     "raw_class": t.raw_class,
                     "confidence": round(t.confidence, 2),
                     "is_uncertain": t.is_uncertain,
+                    "is_calibrated": t.is_calibrated,
+                    "speed_unit": t.speed_unit,
+                    "quality_flag": t.quality_flag,
                     "bbox": [round(v, 1) for v in t.current_bbox],
                     "centroid": [round(v, 1) for v in t.current_centroid],
-                    "speed": round(t.current_speed, 2),
+                    "world_pos": [round(v, 2) for v in t.current_world_pos] if t.current_world_pos else None,
+                    "speed": round(t.current_speed, 1),
+                    "velocity_mps": round(t.current_velocity_mps, 2) if t.current_velocity_mps is not None else None,
+                    "velocity_kmh": round(t.current_velocity_kmh, 1) if t.current_velocity_kmh is not None else None,
+                    "acceleration_mps2": round(t.current_acceleration_mps2, 2) if t.current_acceleration_mps2 is not None else None,
                     "heading": round(t.current_heading, 1),
+                    "distance_travelled_m": round(t.total_distance_meters, 2),
                     "duration": round(t.duration_seconds, 1),
                     "trail": [
                         [round(p.centroid[0], 1), round(p.centroid[1], 1)]
