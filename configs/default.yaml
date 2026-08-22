@@ -1,0 +1,61 @@
+# Heimdallv2 Default Pipeline Configuration
+
+perception:
+  detector:
+    model: "yolov8n.pt"
+    confidence_threshold: 0.25
+    iou_threshold: 0.50
+    img_size: 640
+    device: "auto"
+    # Target prompts / classes for open-vocabulary or standard YOLO models
+    prompts:
+      - "person"
+      - "pedestrian"
+      - "bicycle"
+      - "motorcycle"
+      - "scooter"
+      - "car"
+      - "sedan"
+      - "SUV"
+      - "van"
+      - "pickup truck"
+      - "truck"
+      - "heavy truck"
+      - "bus"
+      - "auto rickshaw"
+      - "emergency vehicle"
+
+  tracker:
+    type: "botsort"  # "botsort" or "bytetrack"
+    config_file: "configs/botsort.yaml"
+    enable_reid: false
+    track_buffer: 60
+    match_threshold: 0.8
+
+trajectories:
+  max_history_points: 100
+  min_track_length: 3
+  stationary_speed_threshold_px: 2.0  # px/s
+  speed_smoothing_window: 5
+
+homography:
+  enabled: false
+  # Four image pixel points -> Four ground plane meter points for real metric speed
+  image_points: []
+  world_points: []
+
+telemetry:
+  provider: "mock"  # "mock", "embedded", "flytbase"
+
+flytbase:
+  mode: "mock"  # "mock", "cloud", "flytos"
+  api_url: "https://api.flytbase.com/v1"
+  vehicle_id: "VIRTUAL-DRONE-01"
+
+storage:
+  db_path: "outputs/heimdall.db"
+  output_dir: "outputs"
+  save_annotated_video: true
+  save_jsonl: true
+  save_csv: true
+  save_trajectories: true

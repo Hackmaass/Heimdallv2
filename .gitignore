@@ -1,0 +1,29 @@
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.env
+*.pt
+*.onnx
+*.engine
+
+# Outputs
+outputs/*
+!outputs/.gitkeep
+
+# Data and Videos
+data/*
+!data/.gitkeep
+videos/*
+!videos/.gitkeep
+
+.DS_Store
+Thumbs.db

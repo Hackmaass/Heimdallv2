@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HEIMDALLv2 — Autonomous Drone Aerial Traffic Command</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Top Navigation & System Status HUD -->
+    <header class="top-bar">
+      <div class="brand-section">
+        <div class="brand-logo">
+          <div class="dot" id="wsStatusDot"></div>
+          <span>HEIMDALL<span style="color:var(--accent-cyan)">v2</span></span>
+        </div>
+        <span class="badge badge-cyan" id="wsStatusText">CONNECTING...</span>
+        <span class="badge badge-lime">LEVEL 1: TRACK & DETECT</span>
+      </div>
+
+      <div class="header-status-metrics">
+        <div class="metric-pill">
+          <span class="label">Active Tracks</span>
+          <span class="val" id="headerActiveCount" style="color:var(--accent-cyan)">0</span>
+        </div>
+        <div class="metric-pill">
+          <span class="label">Total Road Users</span>
+          <span class="val" id="headerTotalUnique" style="color:var(--accent-lime)">0</span>
+        </div>
+        <div class="metric-pill">
+          <span class="label">Current Frame</span>
+          <span class="val" id="headerFrameCount">0</span>
+        </div>
+        <div class="metric-pill">
+          <span class="label">FlytBase Dock</span>
+          <span class="val" style="color:var(--accent-blue)">DOCK-01 (MOCK)</span>
+        </div>
+      </div>
+
+      <div class="controls-section">
+        <button class="btn btn-primary" id="btnOpenProcess">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          Process Video
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Command Workspace Grid -->
+    <main class="workspace-grid">
+
+      <!-- LEFT: Live Video Feed & Recorded Video Player with Tactical Overlay -->
+      <section class="panel">
+        <div class="panel-header">
+          <div class="title-badge">
+            <div class="indicator"></div>
+            <span>Aerial Gimbal Payload</span>
+          </div>
+          <div class="canvas-toolbar" style="position:static; padding:0; background:transparent; border:none;">
+            <button class="tool-btn active" id="btnModeLive" type="button">Live Stream</button>
+            <button class="tool-btn" id="btnModePlayer" type="button">Annotated Player</button>
+          </div>
+        </div>
+
+        <!-- Video Player Selector Bar -->
+        <div id="playerSelectorBar" style="display:none; background:rgba(9, 13, 22, 0.95); border-bottom:1px solid var(--border-subtle); padding:4px 10px; font-family:var(--font-mono); font-size:11px; align-items:center; justify-content:space-between; gap:8px;">
+          <span style="color:var(--text-muted); font-size:10px;">RECORDED RUN:</span>
+          <select id="selectOutputVideo" style="flex:1; background:var(--bg-darkest); border:1px solid var(--border-active); color:var(--text-primary); padding:3px 6px; font-size:10.5px; border-radius:3px;">
+            <option value="">Loading recorded outputs...</option>
+          </select>
+          <button class="tool-btn" id="btnRefreshOutputs" type="button" title="Refresh outputs">↻</button>
+        </div>
+
+        <div class="panel-content">
+          <div class="video-viewport" id="videoViewport">
+            <!-- Live Stream Canvas -->
+            <img id="liveVideoCanvas" alt="Live Drone Teleoperation Feed" src="/static/placeholder.jpg" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'640\' height=\'480\' viewBox=\'0 0 640 480\'><rect fill=\'%23090d16\' width=\'640\' height=\'480\'/><text fill=\'%2364748b\' font-family=\'monospace\' font-size=\'14\' x=\'50%25\' y=\'50%25\' dominant-baseline=\'middle\' text-anchor=\'middle\'>WAITING FOR VIDEO STREAM OR PROCESS PIPELINE...</text></svg>'">
+
+            <!-- Recorded Annotated Video Player -->
+            <video id="annotatedVideoPlayer" controls playsinline style="display:none; width:100%; height:100%; object-fit:contain; background:#000;"></video>
+
+            <!-- Video Overlay HUD -->
+            <div class="video-overlay-hud">
+              <div class="hud-pill" id="hudFrameIdx">FRAME: --</div>
+              <div class="hud-pill" id="hudTimestamp">T: 0.00s</div>
+              <button class="hud-pill hud-action-btn" id="btnPinFrameToMap" type="button" title="Send current frame to 2D canvas background">
+                📷 Pin Frame to 2D Map
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CENTER: 2D Top-Down Interactive Trajectory Canvas & Analytical Layers -->
+      <section class="panel">
+        <div class="panel-header">
+          <div class="title-badge">
+            <div class="indicator" style="background:var(--accent-lime)"></div>
+            <span>2D Spatial Trajectory & Analytics Layers</span>
+          </div>
+          <div class="canvas-toolbar" style="position:static; padding:0; background:transparent; border:none;">
+            <button class="tool-btn" id="btnAutoFit" type="button">Auto-Fit</button>
+            <button class="tool-btn" id="btnReloadTrajectories" type="button">Sync Trails</button>
+            <button class="tool-btn" id="btnResetView" type="button">Reset</button>
+          </div>
+        </div>
+
+        <!-- Analytical Layer Ribbon -->
+        <div class="layer-control-bar">
+          <div class="layer-group">
+            <span class="layer-group-title">LAYERS:</span>
+            <button class="layer-chip active" id="layerToggleVideo" type="button">📷 Video Overlay</button>
+            <div class="opacity-slider-container" id="videoOpacityContainer">
+              <span style="font-size:9px; color:var(--text-muted)">Opacity:</span>
+              <input type="range" id="sliderVideoOpacity" min="0" max="1" step="0.05" value="0.55" style="width:50px;">
+            </div>
+            <button class="layer-chip active" id="layerToggleTrails" type="button">📈 Trails</button>
+            <button class="layer-chip" id="layerToggleHeatmap" type="button">🔥 Density Heatmap</button>
+            <button class="layer-chip" id="layerToggleSpeed" type="button">⚡ Speed Colors</button>
+            <button class="layer-chip" id="layerToggleConflicts" type="button">⚠️ Conflicts</button>
+            <button class="layer-chip active" id="layerToggleArrows" type="button">➡️ Vectors</button>
+          </div>
+
+          <!-- Class Filter Badges -->
+          <div class="layer-group class-filter-group">
+            <span class="layer-group-title">FILTER:</span>
+            <button class="class-chip active" data-class="ALL" type="button">ALL</button>
+            <button class="class-chip" data-class="CAR" type="button">CAR</button>
+            <button class="class-chip" data-class="MOTORCYCLE" type="button">BIKE</button>
+            <button class="class-chip" data-class="BUS" type="button">BUS</button>
+            <button class="class-chip" data-class="HGV" type="button">HGV</button>
+            <button class="class-chip" data-class="PERSON" type="button">PEDESTRIAN</button>
+          </div>
+        </div>
+
+        <div class="panel-content">
+          <div class="trajectory-canvas-container">
+            <canvas id="trajectoryMapCanvas"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: Telemetry & Traffic Taxonomy Analytics Sidebar -->
+      <aside class="panel sidebar-panel">
+        
+        <!-- Drone Telemetry Card -->
+        <div class="card">
+          <div class="card-title">
+            <span>FlytBase Drone Telemetry</span>
+            <span class="badge badge-lime">LINK 100%</span>
+          </div>
+          <div class="telemetry-grid">
+            <div class="telemetry-item">
+              <div class="t-label">COORDINATES</div>
+              <div class="t-val" id="telGps" style="font-size:11px">18.5308, 73.8475</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">ALTITUDE (AGL)</div>
+              <div class="t-val" id="telAlt">65.0 m</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">HEADING (YAW)</div>
+              <div class="t-val" id="telHeading">087°</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">GROUND SPEED</div>
+              <div class="t-val" id="telSpeed">8.5 m/s</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">BATTERY</div>
+              <div class="t-val" id="telBattery" style="color:var(--accent-lime)">96%</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">MISSION MODE</div>
+              <div class="t-val" id="telMode" style="font-size:11px">SURVEILLANCE</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Road User Breakdown -->
+        <div class="card">
+          <div class="card-title">Active Road Users By Class</div>
+          <div class="class-breakdown-list">
+            <div class="class-row">
+              <div class="class-label-wrapper">
+                <div class="class-indicator" style="background:#38BDF8"></div>
+                <span>Cars / Sedans / SUVs</span>
+              </div>
+              <span class="class-count" id="countCars" style="color:#38BDF8">0</span>
+            </div>
+            <div class="class-row">
+              <div class="class-label-wrapper">
+                <div class="class-indicator" style="background:#C8F23A"></div>
+                <span>Motorcycles / Scooters</span>
+              </div>
+              <span class="class-count" id="countBikes" style="color:#C8F23A">0</span>
+            </div>
+            <div class="class-row">
+              <div class="class-label-wrapper">
+                <div class="class-indicator" style="background:#A855F7"></div>
+                <span>Buses / Transit</span>
+              </div>
+              <span class="class-count" id="countBuses" style="color:#A855F7">0</span>
+            </div>
+            <div class="class-row">
+              <div class="class-label-wrapper">
+                <div class="class-indicator" style="background:#F43F5E"></div>
+                <span>Heavy Goods (HGV / Trucks)</span>
+              </div>
+              <span class="class-count" id="countHgv" style="color:#F43F5E">0</span>
+            </div>
+            <div class="class-row">
+              <div class="class-label-wrapper">
+                <div class="class-indicator" style="background:#FB923C"></div>
+                <span>Light Goods (LGV / Vans)</span>
+              </div>
+              <span class="class-count" id="countLgv" style="color:#FB923C">0</span>
+            </div>
+            <div class="class-row">
+              <div class="class-label-wrapper">
+                <div class="class-indicator" style="background:#00FFB2"></div>
+                <span>Pedestrians / Persons</span>
+              </div>
+              <span class="class-count" id="countPedestrians" style="color:#00FFB2">0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Selected Track Inspector Card -->
+        <div class="card" id="inspectorCard" style="display:none">
+          <div class="card-title">
+            <span>Track Inspector: <span id="inspId">#--</span></span>
+            <span class="badge badge-cyan" id="inspClass">CAR</span>
+          </div>
+          <div class="telemetry-grid">
+            <div class="telemetry-item">
+              <div class="t-label">AVG RELATIVE SPEED</div>
+              <div class="t-val" id="inspSpeed">--</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">TRAIL DISTANCE</div>
+              <div class="t-val" id="inspDist">--</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">FRAMES TRACKED</div>
+              <div class="t-val" id="inspFrames">--</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">DURATION SEEN</div>
+              <div class="t-val" id="inspDuration">--</div>
+            </div>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- BOTTOM: Persistent Trajectory Table -->
+      <section class="panel bottom-panel">
+        <div class="panel-header">
+          <div class="title-badge">
+            <div class="indicator" style="background:var(--accent-blue)"></div>
+            <span>Live Persistent Track Registry & Kinematics Log</span>
+          </div>
+          <span style="color:var(--text-muted); font-size:10px">CLICK ROW TO INSPECT TRAJECTORY TRAIL</span>
+        </div>
+        <div class="panel-content track-table-container">
+          <table class="tactical-table">
+            <thead>
+              <tr>
+                <th>TRACK ID</th>
+                <th>NORMALIZED CLASS</th>
+                <th>CONFIDENCE</th>
+                <th>RELATIVE SPEED</th>
+                <th>HEADING</th>
+                <th>DURATION</th>
+                <th>BOUNDING BOX [X1, Y1, X2, Y2]</th>
+              </tr>
+            </thead>
+            <tbody id="tracksTableBody">
+              <tr>
+                <td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted)">
+                  No active tracks detected. Launch video processing to initialize BoT-SORT.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Modal for Video Processing & Upload Configuration -->
+  <div class="modal-backdrop" id="processModal">
+    <div class="modal-card">
+      <div class="modal-title">
+        <span>RUN HEIMDALL PERCEPTION & TRACKING PIPELINE</span>
+        <button class="tool-btn" id="btnCloseModal">✕</button>
+      </div>
+
+      <div id="modalForm">
+        
+        <!-- Video Source Selection Tabs -->
+        <div class="modal-tabs">
+          <button class="modal-tab active" id="tabUpload" type="button">UPLOAD VIDEO FILE</button>
+          <button class="modal-tab" id="tabExisting" type="button">SELECT SERVER VIDEO</button>
+        </div>
+
+        <!-- 1. Upload Video Pane -->
+        <div id="paneUpload">
+          <div class="upload-dropzone" id="uploadDropzone">
+            <input type="file" id="videoFileInput" accept="video/mp4,video/avi,video/mov,video/mkv,.mp4,.avi,.mov,.mkv" style="display:none">
+            <div class="upload-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+            </div>
+            <div class="upload-text-main" id="uploadDropText">Click or Drag & Drop Aerial Drone Video Here</div>
+            <div class="upload-text-sub">Supports MP4, AVI, MOV, MKV (Up to 4K Aerial Footage)</div>
+          </div>
+        </div>
+
+        <!-- 2. Existing Videos Pane -->
+        <div id="paneExisting" style="display:none;">
+          <div class="form-group">
+            <label>CHOOSE FOOTAGE FROM DATA/ REPOSITORY</label>
+            <select id="selectExistingVideo">
+              <option value="">Loading available videos...</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Selected Video Status Card -->
+        <div class="video-selected-info" id="selectedVideoCard" style="display:none;">
+          <div>
+            <div style="font-weight:700; color:var(--text-primary)" id="selectedVideoName">drone_test.mp4</div>
+            <div class="video-selected-meta" id="selectedVideoMeta">1.8 MB | 10.0s | 30 FPS</div>
+          </div>
+          <span class="badge badge-cyan" id="selectedVideoBadge">READY</span>
+        </div>
+
+        <!-- Duration & Time Window Processing Options -->
+        <div class="form-group" style="background:rgba(15,23,42,0.6); border:1px solid var(--border-subtle); padding:12px; border-radius:6px; margin-top:8px;">
+          <label>
+            <span>PROCESSING TIME WINDOW & DURATION</span>
+            <span class="highlight" id="durationHint">Full Video</span>
+          </label>
+          
+          <div style="display:flex; gap:16px; margin-bottom:8px;">
+            <label class="checkbox-label">
+              <input type="radio" name="durationMode" id="radioFullVideo" value="full" checked>
+              <span>Process Full Video</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="radio" name="durationMode" id="radioLimitDuration" value="limit">
+              <span>Limit Duration (Time Window)</span>
+            </label>
+          </div>
+
+          <!-- Time limit inputs (toggled) -->
+          <div id="timeLimitControls" style="display:none; margin-top:10px;">
+            <div class="form-row-2">
+              <div>
+                <label style="font-size:10px;">DURATION TO PROCESS (SECONDS)</label>
+                <input type="number" id="inputDuration" min="1" max="3600" step="1" value="10" placeholder="e.g. 10">
+              </div>
+              <div>
+                <label style="font-size:10px;">START OFFSET (SECONDS)</label>
+                <input type="number" id="inputStartOffset" min="0" max="3600" step="1" value="0" placeholder="e.g. 0">
+              </div>
+            </div>
+
+            <!-- Quick Duration Presets -->
+            <div class="duration-preset-grid">
+              <button type="button" class="preset-btn active" data-sec="10">10 sec</button>
+              <button type="button" class="preset-btn" data-sec="30">30 sec</button>
+              <button type="button" class="preset-btn" data-sec="60">1 min</button>
+              <button type="button" class="preset-btn" data-sec="120">2 min</button>
+              <button type="button" class="preset-btn" data-sec="300">5 min</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Perception & Tracker Configurations -->
+        <div class="form-row-2" style="margin-top:12px;">
+          <div class="form-group">
+            <label>PERCEPTION MODEL</label>
+            <select id="selectModel">
+              <option value="yolov8n.pt" selected>YOLOv8 Nano (Fast / Power-Efficient)</option>
+              <option value="yolov8s.pt">YOLOv8 Small (High Precision)</option>
+              <option value="yolov8s-world.pt">YOLO-World (Open-Vocabulary)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>TRACKER ALGORITHM</label>
+            <select id="selectTracker">
+              <option value="botsort" selected>BoT-SORT (GMC + Drone Motion)</option>
+              <option value="bytetrack">ByteTrack (High-Speed / Low Power)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>DETECTION CONFIDENCE</label>
+            <input type="number" id="inputConf" min="0.1" max="0.9" step="0.05" value="0.25">
+          </div>
+
+          <div class="form-group">
+            <label>FRAME STEPPING (POWER SAVE)</label>
+            <select id="selectFrameStep">
+              <option value="1" selected>Every Frame (1x / 30 FPS)</option>
+              <option value="2">Every 2nd Frame (2x Speed / 50% Power)</option>
+              <option value="3">Every 3rd Frame (3x Speed / 66% Power)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Checkbox Options -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; margin-bottom:16px;">
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkSaveVideo" checked>
+            <span>Render & Save Annotated Video (.mp4)</span>
+          </label>
+        </div>
+
+        <div style="display:flex; justify-content:flex-end; gap:8px; border-top:1px solid var(--border-subtle); padding-top:14px;">
+          <button class="btn" id="btnCancelModal" type="button" onclick="document.getElementById('processModal').classList.remove('open')">Cancel</button>
+          <button class="btn btn-primary" id="btnStartProcessing" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            Launch Pipeline
+          </button>
+        </div>
+      </div>
+
+      <!-- Processing Progress & Complete Status HUD -->
+      <div id="modalProgress" style="display:none; padding:16px 0;">
+        <div style="text-align:center;">
+          <div style="font-family:var(--font-mono); font-size:32px; font-weight:800; color:var(--accent-cyan); margin-bottom:4px;" id="progressPercent">0%</div>
+          <div class="progress-container">
+            <div class="progress-bar-fill" id="progressBarFill"></div>
+          </div>
+          <div style="font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:14px;" id="progressStatusText">INITIALIZING TRACKER & MODEL...</div>
+        </div>
+
+        <!-- Completed Output Downloads Container -->
+        <div id="modalCompleteActions" style="display:none; border-top:1px solid var(--border-subtle); padding-top:14px;">
+          <div style="font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--accent-lime); margin-bottom:8px;">
+            ✓ PIPELINE EXECUTION COMPLETED SUCCESSFULLY
+          </div>
+          <div class="output-download-grid">
+            <a class="output-download-btn" id="downloadAnnotatedVideo" target="_blank" href="#">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              Annotated Video
+            </a>
+            <a class="output-download-btn" id="downloadTracksCsv" target="_blank" href="#">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+              Tracks CSV
+            </a>
+            <a class="output-download-btn" id="downloadTrajJson" target="_blank" href="#">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+              Trajectories JSON
+            </a>
+            <a class="output-download-btn" id="downloadSummaryJson" target="_blank" href="#">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+              Mission Summary
+            </a>
+          </div>
+          <div style="margin-top:14px; text-align:right;">
+            <button class="btn btn-primary" type="button" id="btnCloseCompleteModal">
+              View Trajectories in Command Center
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="/static/map.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

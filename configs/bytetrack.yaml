@@ -1,0 +1,10 @@
+# ByteTrack Tracker Configuration
+# Fallback high-speed Multi-Object Tracker
+
+tracker_type: bytetrack
+track_high_thresh: 0.35  # Threshold for the first association
+track_low_thresh: 0.10   # Threshold for the second association
+new_track_thresh: 0.40   # Threshold to initialize a new track
+track_buffer: 60         # Frames to keep lost tracks
+match_thresh: 0.80       # Matching threshold
+fuse_score: true         # Fuse detection confidence into score
