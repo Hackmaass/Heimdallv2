@@ -1344,4 +1344,77 @@ table.tactical-table tr.selected {
   background: rgba(56, 189, 248, 0.05);
 }
 
+/* ── Level 4 Spatial Grounding & Leaflet Styles ───────────────────────────── */
+#geographicMapContainer {
+  width: 100%;
+  height: 100%;
+  background: #0B0F19;
+  font-family: var(--font-mono);
+}
+
+.leaflet-container {
+  background: #090D16 !important;
+  font-family: var(--font-mono) !important;
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid var(--border-active) !important;
+  color: var(--text-primary) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+}
+
+.leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid var(--border-active) !important;
+}
+
+/* Vehicle Pulse Marker on Leaflet */
+.geo-vehicle-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 229, 255, 0.25);
+  border: 1.5px solid #00E5FF;
+  color: #FFFFFF;
+  font-size: 9px;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(0, 229, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.geo-vehicle-marker:hover, .geo-vehicle-marker.selected {
+  background: #C8F23A;
+  border-color: #FFFFFF;
+  color: #090D16;
+  box-shadow: 0 0 12px #C8F23A;
+  transform: scale(1.25);
+  z-index: 1000 !important;
+}
+
+.geo-queue-card {
+  background: rgba(19, 31, 55, 0.5);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  border-left: 3px solid var(--accent-crimson);
+  border-radius: 4px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.geo-queue-card:hover {
+  background: rgba(244, 63, 94, 0.08);
+  border-color: var(--accent-crimson);
+}
+
 

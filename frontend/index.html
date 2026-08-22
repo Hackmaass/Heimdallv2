@@ -8,6 +8,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Leaflet.js Map Framework for Level 4 Spatial Grounding -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
 <body>
   <div class="app-container">
@@ -25,7 +28,8 @@
         <div class="level-nav-group" id="levelNavGroup">
           <button class="level-btn" id="btnNavLevel1" type="button">LEVEL 1: TRACK</button>
           <button class="level-btn" id="btnNavLevel2" type="button">LEVEL 2: OBJECT</button>
-          <button class="level-btn active" id="btnNavLevel3" type="button">LEVEL 3: AGGREGATE</button>
+          <button class="level-btn" id="btnNavLevel3" type="button">LEVEL 3: AGGREGATE</button>
+          <button class="level-btn active" id="btnNavLevel4" type="button">LEVEL 4: SPATIAL</button>
         </div>
       </div>
 
@@ -51,6 +55,8 @@
       <div class="controls-section" style="display:flex; gap:8px; align-items:center;">
         <span class="badge" id="headerCalibStatus" style="font-size:10px; background:rgba(56,189,248,0.1); color:var(--accent-cyan);">SRT TELEMETRY</span>
         <button class="btn" id="btnOpenCalib" type="button" style="font-size:11px; padding:6px 10px;">📐 Calibrate</button>
+        <a class="btn" id="btnExportGeoJson" href="/api/export/geojson" download style="font-size:11px; padding:6px 10px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Export Level 4 GeoJSON">🌍 GeoJSON</a>
+        <a class="btn" id="btnExportSpatialCsv" href="/api/export/spatial-csv" download style="font-size:11px; padding:6px 10px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;" title="Export Georeferenced CSV">📍 Spatial CSV</a>
         <a class="btn" id="btnExportCsv" href="/api/export/csv" download style="font-size:11px; padding:6px 10px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">📥 CSV</a>
         <a class="btn" id="btnExportJson" href="/api/export/json" download style="font-size:11px; padding:6px 10px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">📥 JSON</a>
         <button class="btn btn-primary" id="btnOpenProcess">
@@ -113,14 +119,16 @@
           <div class="gutter-handle"></div>
         </div>
 
-        <!-- 2. CENTER: 2D Top-Down Interactive Trajectory Canvas & Analytical Layers -->
+        <!-- 2. CENTER: 2D Top-Down Trajectory Canvas & Real-World Geographic Map -->
         <section class="panel panel-map" id="panelMap">
           <div class="panel-header">
             <div class="title-badge">
               <div class="indicator" style="background:var(--accent-lime)"></div>
-              <span>2D Spatial Trajectory & Analytics Layers</span>
+              <span id="mapPanelTitle">2D Spatial Trajectory & Analytics</span>
             </div>
-            <div class="canvas-toolbar" style="position:static; padding:0; background:transparent; border:none;">
+            <div class="canvas-toolbar" style="position:static; padding:0; background:transparent; border:none; display:flex; gap:4px;">
+              <button class="tool-btn active" id="btnViewCanvas2D" type="button" title="Top-Down 2D Spatial Canvas">2D Canvas</button>
+              <button class="tool-btn" id="btnViewGeoMap" type="button" title="Real-World Georeferenced Road Map">🌍 Real Road Map</button>
               <button class="tool-btn" id="btnAutoFit" type="button">Auto-Fit</button>
               <button class="tool-btn" id="btnReloadTrajectories" type="button">Sync Trails</button>
               <button class="tool-btn" id="btnResetView" type="button">Reset</button>
@@ -128,7 +136,7 @@
           </div>
 
           <!-- Analytical Layer Ribbon -->
-          <div class="layer-control-bar">
+          <div class="layer-control-bar" id="canvasLayerBar">
             <div class="layer-group">
               <span class="layer-group-title">LAYERS:</span>
               <button class="layer-chip active" id="layerToggleVideo" type="button">📷 Video Overlay</button>
@@ -155,10 +163,28 @@
             </div>
           </div>
 
+          <!-- Level 4 Geographic Map Layer Bar -->
+          <div class="layer-control-bar" id="geoMapLayerBar" style="display:none; background:rgba(15, 23, 42, 0.95);">
+            <div class="layer-group">
+              <span class="layer-group-title">MAP LAYERS:</span>
+              <button class="layer-chip active" id="geoToggleRoads" type="button">🛣️ Road Corridors</button>
+              <button class="layer-chip active" id="geoToggleLanes" type="button">🚦 Physical Lanes</button>
+              <button class="layer-chip active" id="geoToggleVehicles" type="button">🚗 Grounded Tracks</button>
+              <button class="layer-chip active" id="geoToggleDesire" type="button">↔️ Desire Lines</button>
+              <button class="layer-chip active" id="geoToggleQueues" type="button">🛑 Spatial Queues</button>
+              <button class="layer-chip" id="geoToggleSpeedHeat" type="button">⚡ Speed Map</button>
+            </div>
+            <div class="layer-group" style="margin-left:auto;">
+              <span class="badge" style="background:rgba(0,229,255,0.15); color:var(--accent-cyan); font-size:10px;">HINJAWADI JUNCTION (18.5662° N, 73.7718° E)</span>
+            </div>
+          </div>
+
           <div class="panel-content">
-            <div class="trajectory-canvas-container">
+            <div class="trajectory-canvas-container" id="trajectoryCanvasWrapper">
               <canvas id="trajectoryMapCanvas"></canvas>
             </div>
+            <!-- Leaflet Real-World Geographic Road Map -->
+            <div id="geographicMapContainer" style="display:none; width:100%; height:100%; position:relative; background:#0B0F19; min-height:300px;"></div>
           </div>
         </section>
 
@@ -167,17 +193,18 @@
           <div class="gutter-handle"></div>
         </div>
 
-        <!-- 3. RIGHT: Telemetry, Visual Analytics, and Tabular Analytics Sidebar -->
+        <!-- 3. RIGHT: Telemetry, Visual Analytics, Tabular Analytics, and Spatial Grounding Sidebar -->
         <aside class="panel sidebar-panel" id="panelSidebar" style="display:flex; flex-direction:column; overflow:hidden;">
         
         <!-- Sidebar Navigation Tabs -->
         <div class="panel-header" style="justify-content: space-between; padding: 0 6px;">
           <div class="sidebar-tab-group" id="sidebarTabGroup">
-            <button class="sidebar-tab-btn active" id="tabTelemetry" type="button" title="Flight Telemetry & Road Users">TELEMETRY</button>
+            <button class="sidebar-tab-btn" id="tabTelemetry" type="button" title="Flight Telemetry & Road Users">TELEMETRY</button>
             <button class="sidebar-tab-btn" id="tabL3Visual" type="button" title="Level 3 Visual Analytics">L3 VISUAL</button>
             <button class="sidebar-tab-btn" id="tabL3Tabular" type="button" title="Level 3 Tabular Metrics">L3 TABULAR</button>
+            <button class="sidebar-tab-btn active" id="tabL4Spatial" type="button" title="Level 4 Spatial Grounding">L4 SPATIAL</button>
           </div>
-          <span class="badge badge-cyan" id="sidebarModeBadge" style="font-size:9px;">OPERATIONAL</span>
+          <span class="badge badge-cyan" id="sidebarModeBadge" style="font-size:9px;">SPATIAL GROUNDING</span>
         </div>
 
         <div class="panel-content" style="padding:8px 10px; overflow-y:auto; gap:8px;">
@@ -498,6 +525,114 @@
               <div class="card-title">Origin-Destination (OD) Matrix</div>
               <div style="display:flex; justify-content:center;">
                 <table class="od-matrix-table" id="odMatrixTableTabular"></table>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- ── 4. LEVEL 4: SPATIAL GROUNDING & ROAD NETWORK ANALYTICS ──────── -->
+          <div id="viewSidebarL4Spatial" style="display:flex; flex-direction:column; gap:8px;">
+            
+            <!-- Spatial Status Card -->
+            <div class="card" style="border-left: 3px solid var(--accent-cyan);">
+              <div class="card-title">
+                <span>Geographic Grounding Status</span>
+                <span class="badge badge-lime" id="l4CalibBadge">HIGH CONFIDENCE (CALIBRATED)</span>
+              </div>
+              <div class="telemetry-grid" style="grid-template-columns: repeat(2, 1fr); gap:6px; margin-top:6px;">
+                <div class="telemetry-item">
+                  <span class="lbl">ANCHOR GPS</span>
+                  <span class="val" id="l4AnchorCoords" style="font-size:10px; color:var(--accent-cyan);">18.5662° N, 73.7718° E</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="lbl">GROUNDED TRACKS</span>
+                  <span class="val" id="l4TotalGrounded" style="color:var(--accent-lime);">0</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="lbl">NETWORK AVG SPEED</span>
+                  <span class="val" id="l4NetworkSpeed" style="color:var(--accent-blue);">0.0 km/h</span>
+                </div>
+                <div class="telemetry-item">
+                  <span class="lbl">TOTAL QUEUE EXTENT</span>
+                  <span class="val" id="l4TotalQueue" style="color:var(--accent-crimson);">0.0 m</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Selected Grounded Entity Inspector -->
+            <div class="card" id="cardL4TrackInspector" style="border-left: 3px solid var(--accent-lime);">
+              <div class="card-title">
+                <span>Selected Track Spatial Inspector</span>
+                <span class="badge badge-cyan" id="l4InspConfidenceBadge">TELEMETRY_ESTIMATED</span>
+              </div>
+              <div id="l4InspectorEmptyState" style="padding:10px 0; text-align:center; color:var(--text-muted); font-size:11px;">
+                Select any vehicle in aerial video or on map to inspect real-world road match & kinematics.
+              </div>
+              <div id="l4InspectorContent" style="display:none; flex-direction:column; gap:6px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border-subtle); padding-bottom:4px;">
+                  <span style="font-family:var(--font-mono); font-weight:700; color:var(--accent-lime); font-size:12px;" id="l4InspTrackId">TRACK #--</span>
+                  <span class="badge" id="l4InspClassBadge" style="background:rgba(56,189,248,0.15); color:var(--accent-cyan);">Car</span>
+                </div>
+                <div class="telemetry-grid" style="grid-template-columns: repeat(2, 1fr); gap:5px;">
+                  <div class="telemetry-item"><span class="lbl">GPS LAT/LON</span><span class="val" id="l4InspGps" style="font-size:9.5px;">--</span></div>
+                  <div class="telemetry-item"><span class="lbl">ROAD SEGMENT</span><span class="val" id="l4InspRoad" style="font-size:9.5px;">--</span></div>
+                  <div class="telemetry-item"><span class="lbl">APPROACH</span><span class="val" id="l4InspApproach" style="font-size:9.5px;">--</span></div>
+                  <div class="telemetry-item"><span class="lbl">PHYSICAL LANE</span><span class="val" id="l4InspLane" style="font-size:9.5px; color:var(--accent-cyan);">--</span></div>
+                  <div class="telemetry-item"><span class="lbl">DIRECTION</span><span class="val" id="l4InspDir" style="font-size:9.5px;">--</span></div>
+                  <div class="telemetry-item"><span class="lbl">STATIONING</span><span class="val" id="l4InspStationing" style="font-size:9.5px;">--</span></div>
+                  <div class="telemetry-item"><span class="lbl">VELOCITY</span><span class="val" id="l4InspSpeed" style="font-size:9.5px; color:var(--accent-lime);">--</span></div>
+                  <div class="telemetry-item"><span class="lbl">QUEUE STATE</span><span class="val" id="l4InspQueue" style="font-size:9.5px;">--</span></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Per-Lane Spatial Performance Table -->
+            <div class="card">
+              <div class="card-title">
+                <span>Per-Lane Spatial Metrics</span>
+                <span class="badge badge-cyan" id="l4LaneCountBadge">8 LANES</span>
+              </div>
+              <table class="tabular-mini-table" id="tableL4Lanes">
+                <thead>
+                  <tr>
+                    <th>LANE</th>
+                    <th>VOL</th>
+                    <th>FLOW</th>
+                    <th>SPEED</th>
+                    <th>DENSITY</th>
+                    <th>QUEUE</th>
+                  </tr>
+                </thead>
+                <tbody id="tbodyL4Lanes">
+                  <tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Loading spatial lanes...</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Geographic Desire Lines Breakdown Table -->
+            <div class="card">
+              <div class="card-title">
+                <span>Geographic Desire Lines</span>
+                <span class="badge" style="background:rgba(200,242,58,0.15); color:var(--accent-lime); font-size:9px;">12 CORRIDORS</span>
+              </div>
+              <table class="tabular-mini-table" id="tableL4DesireLines">
+                <thead>
+                  <tr><th>MOVEMENT</th><th>ORIGIN → DEST</th><th>VOL</th><th>SHARE %</th></tr>
+                </thead>
+                <tbody id="tbodyL4DesireLines">
+                  <tr><td colspan="4" style="text-align:center; color:var(--text-muted);">Loading desire lines...</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Spatial Queue Extents Table -->
+            <div class="card">
+              <div class="card-title">
+                <span>Carriageway Spatial Queues</span>
+                <span class="badge badge-crimson" id="l4ActiveQueueCount">0 ACTIVE</span>
+              </div>
+              <div id="l4QueueListContainer" style="display:flex; flex-direction:column; gap:6px;">
+                <!-- Dynamically populated queue cards -->
               </div>
             </div>
 

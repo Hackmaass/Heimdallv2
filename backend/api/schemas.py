@@ -70,3 +70,20 @@ class MissionRequest(BaseModel):
     mission_id: Optional[str] = None
     waypoints: List[WaypointSchema]
     gimbal_pitch: float = -45.0
+
+
+class SpatialCalibrationRequest(BaseModel):
+    anchor_lat: float = Field(..., description="WGS-84 Latitude of ground control reference point")
+    anchor_lon: float = Field(..., description="WGS-84 Longitude of ground control reference point")
+    intersection_name: Optional[str] = Field("Primary Intersection", description="Descriptive name")
+    is_calibrated: Optional[bool] = Field(True, description="Mark as verified ground control calibration")
+
+
+class SpatialCalibrationResponse(BaseModel):
+    status: str
+    is_calibrated: bool
+    anchor_lat: float
+    anchor_lon: float
+    confidence_flag: str
+    message: str
+

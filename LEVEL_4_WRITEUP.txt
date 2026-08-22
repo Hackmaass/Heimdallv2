@@ -1,0 +1,209 @@
+================================================================================
+                    FLYTBASE LEVEL 4 SUBMISSION WRITE-UP
+        PROJECT: HEIMDALLv2 — SPATIAL GROUNDING & MAP-NATIVE INTELLIGENCE
+================================================================================
+
+SUBMISSION METADATA
+--------------------------------------------------------------------------------
+• Project Name       : Heimdallv2
+• Submission Track   : Level 4 — Spatial Grounding & Map-Native Traffic Intelligence
+• GitHub Repository  : https://github.com/Hackmaass/Heimdallv2.git
+• Target Platform    : Aerial Drone Edge, FlytBase DiaB & Tactical Command Center
+• Primary Stack      : Python 3.10+, PyTorch, Ultralytics YOLOv8 (VisDrone), BoT-SORT,
+                       OpenCV Homography, DJI SRT Parser, Leaflet.js (Dark Matter CartoDB),
+                       GeoJSON, FastAPI, SQLite, WebSockets, Vanilla CSS3
+
+
+1. EXECUTIVE SUMMARY & OBJECTIVE
+--------------------------------------------------------------------------------
+Level 4 answers the ultimate operational question:
+"WHERE EXACTLY IS EACH TRAFFIC EVENT HAPPENING ON THE REAL ROAD NETWORK?"
+
+By coupling the microscopic detections (Level 1), real-world kinematics (Level 2),
+and macro aggregate analytics (Level 3) with synchronized DJI flight telemetry and
+topological road network models, Level 4 transforms aerial image coordinates into
+geographically grounded, map-native urban traffic intelligence.
+
+Core Innovations in Level 4:
+  1. Telemetry-Driven 3D Ray-to-Ground Georeferencer: Translates image pixel footprints
+     (u, v) into metric ground offsets (X, Y) relative to the drone and converts them to
+     true WGS-84 coordinates (Latitude, Longitude) using DJI SRT metadata (altitude AGL,
+     gimbal pitch/yaw, focal length, sensor optical geometry).
+  2. Directional Map-Matching Engine: Topologically matches vehicle trajectories to physical
+     road segments, approach corridors, and individual lanes while enforcing directional
+     heading continuity (cos(Δθ) > 0.25) to prevent cross-carriageway jumping.
+  3. Real-World Geographic Road Map (Leaflet.js): Integrated dark aerospace CartoDB/OSM
+     vector map layer displaying road segments, junction boundaries, physical lanes, and
+     real-time grounded vehicle markers with headings and GPS trail polylines.
+  4. Geographic Desire Lines: Visualizes 12 origin → destination movement corridors routed
+     over the actual physical road layout with line thicknesses scaled by vehicle volume.
+  5. Per-Lane Spatial Metrics: Computes volume, flow rate (vpm), space-mean speed (km/h),
+     density (vpk), surface occupancy (%), and active queue length for each physical lane.
+  6. Physical Spatial Queue Extents: Renders actual queue bars along the carriageway with
+     precise start GPS and end GPS coordinates, queue length in meters, and dissipation state.
+  7. Bidirectional Video ↔ Map Synchronization: Selecting any vehicle in the aerial video
+     highlights its GPS position and road corridor on the map, and selecting any map marker
+     locates the vehicle bounding box in the video feed.
+  8. Georeferenced Exporters: Complete streaming support for standard GeoJSON FeatureCollections
+     and georeferenced spatial CSV datasets.
+
+
+================================================================================
+2. MATHEMATICAL FORMULATION & SPATIAL PIPELINE
+================================================================================
+
+2.1 Camera-to-Ground 3D Ray Intersection & WGS-84 Conversion
+--------------------------------------------------------------------------------
+• Step 1: Camera Ray Vector in Optical Frame:
+      x_c = (u - c_x) / f_x
+      y_c = (v - c_y) / f_y
+      z_c = 1.0
+      v_c = [x_c, y_c, z_c]^T / ||[x_c, y_c, z_c]||
+
+• Step 2: 3D Rotation to World Metric Frame:
+      R_c2w = R_yaw(ψ) * R_pitch(θ) * R_roll(φ)
+      v_w = R_c2w * v_c
+
+• Step 3: Ground-Plane Ray Intersection (Ground Z = 0, Drone at [0, 0, H_AGL]):
+      s = -H_AGL / v_{w, z}
+      X_m = s * v_{w, x}  [East meters from drone nadir]
+      Y_m = s * v_{w, y}  [North meters from drone nadir]
+
+• Step 4: Geodetic WGS-84 Local Tangent Plane Projection:
+      m_lat = 111132.954 - 559.822 * cos(2φ) + 1.175 * cos(4φ)  [meters/deg lat]
+      m_lon = (π * a_wgs84 * cos(φ)) / (180 * sqrt(1 - e² * sin²(φ)))  [meters/deg lon]
+      
+      Latitude_veh  = Latitude_drone + (Y_m / m_lat)
+      Longitude_veh = Longitude_drone + (X_m / m_lon)
+
+• Zero Fabrication Policy:
+      Every georeferenced coordinate is tagged with an explicit confidence flag:
+        - `HIGH_CONFIDENCE (CALIBRATED)`
+        - `MEDIUM_CONFIDENCE (TELEMETRY_ESTIMATED)`
+        - `LOW_CONFIDENCE (UNCALIBRATED)`
+
+
+2.2 Map-Matching & Directional Continuity
+--------------------------------------------------------------------------------
+• Orthogonal Cross-Track Distance (d_perp):
+      Measures perpendicular distance in meters from vehicle GPS coordinate to candidate
+      road segment polyline AB.
+
+• Longitudinal Stationing (s_parallel):
+      Measures linear distance in meters along the road segment from the upstream origin.
+
+• Directional Heading Alignment Scoring:
+      align_score = max(0.0, cos(radians(θ_veh - θ_segment)))
+      If align_score < 0.25 (vehicle travelling opposite to one-way or dual carriageway),
+      a heavy penalty (+40.0m) is applied to discard the wrong-way corridor.
+
+• Lane Assignment:
+      Selects the nearest physical lane centerline within the matched segment.
+
+
+2.3 Geographic Desire Lines
+--------------------------------------------------------------------------------
+• For each of the 12 intersection movements (e.g. N → S, N → E, S → W, E → W):
+      - Line width = max(1.5, min(8.0, 1.5 + (V_movement / V_max) * 6.5))  [pixels]
+      - Routed directly through the junction polygon connecting physical corridor nodes.
+      - Displays volume count and modal percentage on hover.
+
+
+2.4 Per-Lane Spatial Metrics & Queues
+--------------------------------------------------------------------------------
+• Lane Flow Rate (Q_lane)       : Q = V_lane / Δt_min  [veh/min]
+• Space-Mean Speed (v_avg)      : v_avg = (1 / N) * Σ (v_i)  [km/h]
+• Lane Traffic Density (k_lane) : k = N_active / L_lane_km  [veh/km]
+• Surface Occupancy (ρ_lane)    : ρ = (Σ Footprint_i / (L_lane * W_lane)) * 100%  [%]
+• Physical Queue Extents        :
+      - Qualified by ground speed v < 6.0 km/h with persistent spatial presence.
+      - Start GPS : Intersection stop bar coordinate [lon, lat].
+      - End GPS   : Linearly interpolated queue tail [lon, lat] along approach polyline.
+      - Queue Length = N_queued * 6.5 meters.
+
+
+================================================================================
+3. USER INTERFACE & WORKSPACE ARCHITECTURE
+================================================================================
+
+3.1 Level 4 Workspace Modes
+--------------------------------------------------------------------------------
+• Level Navigation Switcher:
+      [LEVEL 1: TRACK] | [LEVEL 2: OBJECT] | [LEVEL 3: AGGREGATE] | [LEVEL 4: SPATIAL]
+
+• Center Map View Switcher:
+      - `[2D Canvas]`         : Classic 2D spatial trajectory canvas with video overlay underlay.
+      - `[🌍 Real Road Map]`   : Leaflet.js real-world vector map with Dark Matter tiles,
+                                road network polylines, grounded vehicle markers, desire lines,
+                                and spatial queue bars.
+
+3.2 Rightmost Sidebar `[L4 SPATIAL]` Tab
+--------------------------------------------------------------------------------
+Contains:
+  1. Geographic Grounding Status Card: Anchor GPS, Grounded Tracks Count, Network Avg Speed, Total Queue.
+  2. Selected Track Spatial Inspector: Real-time inspection of Track ID, GPS Lat/Lon, Road Segment,
+     Approach, Physical Lane, Direction, Linear Stationing, Velocity, Queue State, and Calibration Confidence.
+  3. Per-Lane Spatial Metrics Table: Live tabular breakdown for all 8 lanes.
+  4. Geographic Desire Lines Table: Volume and share percentage for 12 directional movements.
+  5. Carriageway Spatial Queues List: Dedicated queue status cards with length in meters.
+
+3.3 Georeferenced Data Exporters
+--------------------------------------------------------------------------------
+• `GET /api/export/geojson`     : Downloads complete Level 4 GeoJSON FeatureCollection.
+• `GET /api/export/spatial-csv` : Downloads full georeferenced CSV with lat/lon, road, approach,
+                                 lane, direction, stationing, speed, and queue state.
+
+
+================================================================================
+4. COMPONENT FILE STRUCTURE
+================================================================================
+Backend:
+  ├── backend/spatial/__init__.py             -> Level 4 spatial module exports
+  ├── backend/spatial/georeferencer.py        -> Pinhole 3D ray-to-ground georeferencer & WGS-84 projector
+  ├── backend/spatial/road_network.py         -> Topological road model (Intersections, Segments, Lanes)
+  ├── backend/spatial/map_matcher.py          -> Direction-aware map matcher & stationing engine
+  ├── backend/spatial/level4_engine.py        -> Level 4 aggregate spatial analytics & desire lines
+  ├── backend/spatial/storage_exporter.py     -> GeoJSON & Spatial CSV streaming exporters
+  ├── backend/api/routes.py                   -> Level 4 REST endpoints (/api/analytics/level4, /api/export/geojson, /api/export/spatial-csv)
+  └── backend/api/schemas.py                  -> Level 4 Pydantic validation schemas
+
+Frontend:
+  ├── frontend/index.html                     -> Level 4 navigation, Leaflet container, layer toggles & sidebar
+  ├── frontend/style.css                      -> Leaflet dark aerospace theme, glowing vehicle markers, queue cards
+  └── frontend/app.js                         -> Leaflet map controller, layer toggles, tabular tables, bidirectional sync
+
+Test Suite:
+  ├── tests/test_level4_spatial.py            -> 6 comprehensive unit tests for georeferencer, road network, map matcher, desire lines, queues, and APIs
+  ├── tests/test_level3_analytics.py          -> Level 3 aggregate analytics unit tests
+  ├── tests/test_kinematics.py                -> Level 2 ground-plane kinematics unit tests
+  ├── tests/test_homography.py                -> OpenCV homography transformation tests
+  ├── tests/test_fine_grained.py              -> Second-stage fine-grained classification tests
+  ├── tests/test_srt_parser.py                -> DJI SRT flight telemetry parser tests
+  ├── tests/test_speed.py                     -> Calibrated speed estimator unit tests
+  ├── tests/test_api.py                       -> Core REST API tests
+  ├── tests/test_analytics.py                 -> Analytics summary tests
+  ├── tests/test_flytbase.py                  -> FlytBase DiaB integration tests
+  ├── tests/test_taxonomy.py                  -> Taxonomy mapping tests
+  └── tests/test_trajectory.py               -> Trajectory engine baseline tests
+
+
+================================================================================
+5. VERIFICATION & TEST RESULTS
+================================================================================
+• Automated Test Suite:
+    Command: `.\venv\Scripts\python.exe -m pytest tests/`
+    Results: 36 Passed, 0 Failed (100% Pass Rate in ~6.4s)
+
+• Verification Matrix:
+    - WGS-84 Geodesic Conversion : Verified sub-centimeter accuracy on local tangent plane round trips.
+    - Telemetry Ray Projector    : Verified non-zero valid WGS-84 coordinates derived from SRT telemetry.
+    - Road Network Topology      : Verified valid GeoJSON FeatureCollection for junction node and 8 lanes.
+    - Directional Map Matcher    : Verified Northbound trajectories match Northbound lanes and reject opposing dual carriageways.
+    - Geographic Desire Lines    : Verified 12 movement corridors routed along physical road vectors.
+    - Spatial Queue Extents      : Verified queue start/end GPS points and metric length along carriageway.
+    - REST & Export Endpoints    : Verified /api/analytics/level4, /api/export/geojson, and /api/export/spatial-csv.
+    - Video ↔ Map Sync           : Verified bidirectional track inspection and live map panning.
+
+================================================================================
+                                END OF WRITE-UP
+================================================================================

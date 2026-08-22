@@ -188,6 +188,7 @@ function updateTrackState(tracks, totalUnique) {
 
 function selectTrack(trackId) {
   visualizer.setSelectedTrack(trackId);
+  inspectGroundedTrack(trackId);
   fetch(`/api/tracks/${trackId}`)
     .then(r => r.json())
     .then(data => {
@@ -1001,19 +1002,48 @@ function initLevel3UI() {
   const btnL1 = document.getElementById("btnNavLevel1");
   const btnL2 = document.getElementById("btnNavLevel2");
   const btnL3 = document.getElementById("btnNavLevel3");
+  const btnL4 = document.getElementById("btnNavLevel4");
 
   if (btnL1) btnL1.onclick = () => setLevelMode(1);
   if (btnL2) btnL2.onclick = () => setLevelMode(2);
   if (btnL3) btnL3.onclick = () => setLevelMode(3);
+  if (btnL4) btnL4.onclick = () => setLevelMode(4);
 
   // Sidebar Tab Switchers
   const tabTel = document.getElementById("tabTelemetry");
   const tabVis = document.getElementById("tabL3Visual");
   const tabTab = document.getElementById("tabL3Tabular");
+  const tabSpat = document.getElementById("tabL4Spatial");
 
   if (tabTel) tabTel.onclick = () => setSidebarTab("telemetry");
   if (tabVis) tabVis.onclick = () => setSidebarTab("visual");
   if (tabTab) tabTab.onclick = () => setSidebarTab("tabular");
+  if (tabSpat) tabSpat.onclick = () => setSidebarTab("spatial");
+
+  // Center Map Mode Switcher (2D Canvas vs Real Road Map)
+  const btnViewCanvas = document.getElementById("btnViewCanvas2D");
+  const btnViewGeo = document.getElementById("btnViewGeoMap");
+  if (btnViewCanvas) btnViewCanvas.onclick = () => setCenterMapMode("canvas");
+  if (btnViewGeo) btnViewGeo.onclick = () => setCenterMapMode("geo");
+
+  // Level 4 Geographic Layer Toggles
+  const toggles = [
+    { id: "geoToggleRoads", layer: "roads" },
+    { id: "geoToggleLanes", layer: "lanes" },
+    { id: "geoToggleVehicles", layer: "vehicles" },
+    { id: "geoToggleDesire", layer: "desire" },
+    { id: "geoToggleQueues", layer: "queues" },
+    { id: "geoToggleSpeedHeat", layer: "speedHeat" },
+  ];
+  toggles.forEach(t => {
+    const el = document.getElementById(t.id);
+    if (el) {
+      el.onclick = () => {
+        el.classList.toggle("active");
+        toggleGeoLayer(t.layer, el.classList.contains("active"));
+      };
+    }
+  });
 
   // Time Range Chips
   document.querySelectorAll(".time-chip").forEach(chip => {
@@ -1022,6 +1052,7 @@ function initLevel3UI() {
       chip.classList.add("active");
       l3TimeRange = chip.getAttribute("data-range") || "all";
       refreshLevel3Analytics();
+      if (currentSidebarTab === "spatial") refreshLevel4Analytics();
     };
   });
 
@@ -1034,8 +1065,14 @@ function initLevel3UI() {
   // Refresh Analytics Button
   const btnRefresh = document.getElementById("btnRefreshL3");
   if (btnRefresh) {
-    btnRefresh.onclick = () => refreshLevel3Analytics();
+    btnRefresh.onclick = () => {
+      refreshLevel3Analytics();
+      refreshLevel4Analytics();
+    };
   }
+
+  // Initialize Leaflet Map
+  initLevel4SpatialMap();
 }
 
 function setSidebarTab(tabName) {
@@ -1043,19 +1080,23 @@ function setSidebarTab(tabName) {
   const tabTel = document.getElementById("tabTelemetry");
   const tabVis = document.getElementById("tabL3Visual");
   const tabTab = document.getElementById("tabL3Tabular");
+  const tabSpat = document.getElementById("tabL4Spatial");
 
   const viewTel = document.getElementById("viewSidebarTelemetry");
   const viewVis = document.getElementById("viewSidebarL3Visual");
   const viewTab = document.getElementById("viewSidebarL3Tabular");
+  const viewSpat = document.getElementById("viewSidebarL4Spatial");
   const badge = document.getElementById("sidebarModeBadge");
 
   if (tabTel) tabTel.classList.toggle("active", tabName === "telemetry");
   if (tabVis) tabVis.classList.toggle("active", tabName === "visual");
   if (tabTab) tabTab.classList.toggle("active", tabName === "tabular");
+  if (tabSpat) tabSpat.classList.toggle("active", tabName === "spatial");
 
   if (viewTel) viewTel.style.display = (tabName === "telemetry") ? "flex" : "none";
   if (viewVis) viewVis.style.display = (tabName === "visual") ? "flex" : "none";
   if (viewTab) viewTab.style.display = (tabName === "tabular") ? "flex" : "none";
+  if (viewSpat) viewSpat.style.display = (tabName === "spatial") ? "flex" : "none";
 
   if (badge) {
     if (tabName === "telemetry") {
@@ -1064,14 +1105,19 @@ function setSidebarTab(tabName) {
     } else if (tabName === "visual") {
       badge.textContent = "L3 VISUAL";
       badge.style.color = "var(--accent-cyan)";
-    } else {
+    } else if (tabName === "tabular") {
       badge.textContent = "L3 TABULAR";
       badge.style.color = "var(--accent-orange)";
+    } else {
+      badge.textContent = "SPATIAL GROUNDING";
+      badge.style.color = "var(--accent-cyan)";
     }
   }
 
   if (tabName === "visual" || tabName === "tabular") {
     refreshLevel3Analytics();
+  } else if (tabName === "spatial") {
+    refreshLevel4Analytics();
   }
 }
 
@@ -1080,15 +1126,22 @@ function setLevelMode(level) {
   const btnL1 = document.getElementById("btnNavLevel1");
   const btnL2 = document.getElementById("btnNavLevel2");
   const btnL3 = document.getElementById("btnNavLevel3");
+  const btnL4 = document.getElementById("btnNavLevel4");
 
   if (btnL1) btnL1.classList.toggle("active", level === 1);
   if (btnL2) btnL2.classList.toggle("active", level === 2);
   if (btnL3) btnL3.classList.toggle("active", level === 3);
+  if (btnL4) btnL4.classList.toggle("active", level === 4);
 
   if (level === 1 || level === 2) {
     setSidebarTab("telemetry");
-  } else {
+    setCenterMapMode("canvas");
+  } else if (level === 3) {
     setSidebarTab("visual");
+    setCenterMapMode("canvas");
+  } else if (level === 4) {
+    setSidebarTab("spatial");
+    setCenterMapMode("geo");
   }
 }
 
@@ -1849,5 +1902,416 @@ function renderFlowDensityScatter(fdData) {
   ctx.font = "8.5px monospace";
   ctx.textAlign = "center";
   ctx.fillText("DENSITY (veh/km)", padLeft + plotW / 2, padTop + plotH + 16);
+}
+
+/* ==============================================================================
+   LEVEL 4: SPATIAL GROUNDING & REAL ROAD MAP CONTROLLER (LEAFLET.JS)
+============================================================================== */
+
+let geoMap = null;
+let currentCenterMapMode = "canvas"; // "canvas" or "geo"
+let geoLayers = {
+  roads: null,
+  lanes: null,
+  vehicles: null,
+  desire: null,
+  queues: null,
+  speedHeat: null,
+};
+let level4DataCache = null;
+let selectedGroundedTrackId = null;
+
+function setCenterMapMode(mode) {
+  currentCenterMapMode = mode;
+  const btnCanvas = document.getElementById("btnViewCanvas2D");
+  const btnGeo = document.getElementById("btnViewGeoMap");
+  const canvasWrapper = document.getElementById("trajectoryCanvasWrapper");
+  const geoContainer = document.getElementById("geographicMapContainer");
+  const canvasLayerBar = document.getElementById("canvasLayerBar");
+  const geoMapLayerBar = document.getElementById("geoMapLayerBar");
+  const title = document.getElementById("mapPanelTitle");
+
+  if (btnCanvas) btnCanvas.classList.toggle("active", mode === "canvas");
+  if (btnGeo) btnGeo.classList.toggle("active", mode === "geo");
+
+  if (mode === "canvas") {
+    if (canvasWrapper) canvasWrapper.style.display = "block";
+    if (geoContainer) geoContainer.style.display = "none";
+    if (canvasLayerBar) canvasLayerBar.style.display = "flex";
+    if (geoMapLayerBar) geoMapLayerBar.style.display = "none";
+    if (title) title.textContent = "2D Spatial Trajectory & Analytics";
+    if (visualizer) visualizer.resize();
+  } else {
+    if (canvasWrapper) canvasWrapper.style.display = "none";
+    if (geoContainer) geoContainer.style.display = "block";
+    if (canvasLayerBar) canvasLayerBar.style.display = "none";
+    if (geoMapLayerBar) geoMapLayerBar.style.display = "flex";
+    if (title) title.textContent = "Georeferenced Real-World Road Network (Leaflet.js)";
+    if (geoMap) {
+      setTimeout(() => geoMap.invalidateSize(), 150);
+    }
+    refreshLevel4Analytics();
+  }
+}
+
+function initLevel4SpatialMap() {
+  const container = document.getElementById("geographicMapContainer");
+  if (!container || typeof L === "undefined" || geoMap) return;
+
+  try {
+    const center = [18.566227, 73.771846];
+    geoMap = L.map("geographicMapContainer", {
+      center: center,
+      zoom: 18,
+      minZoom: 14,
+      maxZoom: 20,
+      zoomControl: true,
+      attributionControl: false,
+    });
+
+    // Dark Matter CartoDB Basemap
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd",
+      maxZoom: 20,
+    }).addTo(geoMap);
+
+    // Initialize Layer Groups
+    geoLayers.roads = L.layerGroup().addTo(geoMap);
+    geoLayers.lanes = L.layerGroup().addTo(geoMap);
+    geoLayers.desire = L.layerGroup().addTo(geoMap);
+    geoLayers.queues = L.layerGroup().addTo(geoMap);
+    geoLayers.speedHeat = L.layerGroup().addTo(geoMap);
+    geoLayers.vehicles = L.layerGroup().addTo(geoMap);
+
+    // Initial fetch
+    refreshLevel4Analytics();
+  } catch (e) {
+    console.warn("Leaflet Map init error:", e);
+  }
+}
+
+function toggleGeoLayer(layerName, isVisible) {
+  if (!geoMap || !geoLayers[layerName]) return;
+  if (isVisible) {
+    if (!geoMap.hasLayer(geoLayers[layerName])) {
+      geoMap.addLayer(geoLayers[layerName]);
+    }
+  } else {
+    if (geoMap.hasLayer(geoLayers[layerName])) {
+      geoMap.removeLayer(geoLayers[layerName]);
+    }
+  }
+}
+
+async function refreshLevel4Analytics() {
+  try {
+    const res = await fetch("/api/analytics/level4");
+    if (!res.ok) return;
+    const data = await res.json();
+    level4DataCache = data;
+
+    renderLevel4SpatialUI(data);
+  } catch (e) {
+    console.warn("Error loading Level 4 spatial analytics:", e);
+  }
+}
+
+function renderLevel4SpatialUI(data) {
+  if (!data) return;
+
+  // 1. Update Spatial Overview Cards
+  const kpis = data.summary_kpis || {};
+  const totalGrounded = document.getElementById("l4TotalGrounded");
+  const netSpeed = document.getElementById("l4NetworkSpeed");
+  const totalQueue = document.getElementById("l4TotalQueue");
+  const calibBadge = document.getElementById("l4CalibBadge");
+
+  if (totalGrounded) totalGrounded.textContent = kpis.total_grounded_vehicles || 0;
+  if (netSpeed) netSpeed.textContent = `${kpis.network_average_speed_kmh || 0.0} km/h`;
+  if (totalQueue) totalQueue.textContent = `${kpis.total_queue_length_m || 0.0} m`;
+  if (calibBadge && kpis.calibration_status) {
+    calibBadge.textContent = kpis.calibration_status;
+  }
+
+  // 2. Render Geographic Road Map Features
+  if (geoMap) {
+    renderGeoMapRoadsAndLanes(data.geojson);
+    renderGeoMapGroundedVehicles(data.grounded_trajectories);
+    renderGeoMapDesireLines(data.desire_lines);
+    renderGeoMapQueues(data.spatial_queues);
+  }
+
+  // 3. Render Per-Lane Spatial Performance Table
+  renderLevel4LanesTable(data.lane_metrics);
+
+  // 4. Render Geographic Desire Lines Table
+  renderLevel4DesireLinesTable(data.desire_lines);
+
+  // 5. Render Spatial Queues Cards
+  renderLevel4QueuesList(data.spatial_queues);
+}
+
+function renderGeoMapRoadsAndLanes(geojson) {
+  if (!geoLayers.roads || !geoLayers.lanes || !geojson || !geojson.features) return;
+
+  geoLayers.roads.clearLayers();
+  geoLayers.lanes.clearLayers();
+
+  geojson.features.forEach(f => {
+    const props = f.properties || {};
+    const geom = f.geometry || {};
+
+    if (props.feature_type === "intersection" && geom.type === "Polygon") {
+      const latlngs = geom.coordinates[0].map(c => [c[1], c[0]]);
+      L.polygon(latlngs, {
+        color: "#00E5FF",
+        weight: 1.5,
+        fillColor: "rgba(0, 229, 255, 0.06)",
+        fillOpacity: 0.8,
+        dashArray: "3, 3",
+      }).bindTooltip(`<b>${props.name}</b><br>Diameter: ${props.diameter_m}m`, { sticky: true }).addTo(geoLayers.roads);
+    } else if (props.feature_type === "road_segment" && geom.type === "LineString") {
+      const latlngs = geom.coordinates.map(c => [c[1], c[0]]);
+      L.polyline(latlngs, {
+        color: "rgba(56, 189, 248, 0.4)",
+        weight: 14,
+        lineCap: "round",
+      }).bindTooltip(`<b>${props.name}</b><br>Approach: ${props.approach}<br>Length: ${props.length_m}m`, { sticky: true }).addTo(geoLayers.roads);
+    } else if (props.feature_type === "lane" && geom.type === "LineString") {
+      const latlngs = geom.coordinates.map(c => [c[1], c[0]]);
+      L.polyline(latlngs, {
+        color: "rgba(200, 242, 58, 0.5)",
+        weight: 3,
+        dashArray: "4, 4",
+      }).bindTooltip(`<b>${props.name}</b><br>Width: ${props.width_m}m<br>Movements: ${props.permitted_movements.join(", ")}`, { sticky: true }).addTo(geoLayers.lanes);
+    }
+  });
+}
+
+function renderGeoMapGroundedVehicles(trajectories) {
+  if (!geoLayers.vehicles || !trajectories) return;
+  geoLayers.vehicles.clearLayers();
+
+  trajectories.forEach(t => {
+    const lat = t.latitude;
+    const lon = t.longitude;
+    if (!lat || !lon) return;
+
+    const isSelected = (selectedGroundedTrackId === t.track_id);
+    const customIcon = L.divIcon({
+      className: `geo-vehicle-marker ${isSelected ? 'selected' : ''}`,
+      html: `<span>#${t.track_id}</span>`,
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+
+    const marker = L.marker([lat, lon], { icon: customIcon }).addTo(geoLayers.vehicles);
+
+    // Trail polyline
+    if (t.gps_trail && t.gps_trail.length >= 2) {
+      const trailLatLngs = t.gps_trail.map(c => [c[1], c[0]]);
+      L.polyline(trailLatLngs, {
+        color: isSelected ? "#C8F23A" : "#00E5FF",
+        weight: isSelected ? 3.5 : 2.0,
+        opacity: 0.8,
+      }).addTo(geoLayers.vehicles);
+    }
+
+    marker.bindTooltip(`
+      <b>TRACK #${t.track_id} (${t.class})</b><br>
+      Road: ${t.road_segment}<br>
+      Lane: ${t.lane}<br>
+      Speed: ${t.speed_kmh} km/h<br>
+      Direction: ${t.direction}<br>
+      Queue: ${t.queue_state}
+    `, { sticky: true });
+
+    marker.on("click", () => {
+      inspectGroundedTrack(t.track_id);
+    });
+  });
+}
+
+function renderGeoMapDesireLines(desireLines) {
+  if (!geoLayers.desire || !desireLines) return;
+  geoLayers.desire.clearLayers();
+
+  desireLines.forEach(dl => {
+    if (dl.vehicle_count <= 0 || !dl.polyline_coords || dl.polyline_coords.length < 2) return;
+
+    const latlngs = dl.polyline_coords.map(c => [c[1], c[0]]);
+    const color = dl.vehicle_count > 10 ? "#00E5FF" : "rgba(56, 189, 248, 0.6)";
+
+    L.polyline(latlngs, {
+      color: color,
+      weight: Math.max(2.0, Math.min(8.0, dl.stroke_width || 3.0)),
+      opacity: 0.85,
+      lineCap: "round",
+    }).bindTooltip(`
+      <b>DESIRE LINE: ${dl.movement_id}</b><br>
+      ${dl.origin} → ${dl.destination}<br>
+      Volume: ${dl.vehicle_count} vehicles (${dl.percentage}%)
+    `, { sticky: true }).addTo(geoLayers.desire);
+  });
+}
+
+function renderGeoMapQueues(queues) {
+  if (!geoLayers.queues || !queues) return;
+  geoLayers.queues.clearLayers();
+
+  queues.forEach(q => {
+    if (q.queued_vehicle_count <= 0 || !q.start_coord || !q.end_coord) return;
+
+    const latlngs = [
+      [q.start_coord[1], q.start_coord[0]],
+      [q.end_coord[1], q.end_coord[0]],
+    ];
+
+    L.polyline(latlngs, {
+      color: "#F43F5E",
+      weight: 6,
+      opacity: 0.9,
+    }).bindTooltip(`
+      <b style="color:#F43F5E">SPATIAL QUEUE: ${q.approach}</b><br>
+      Road: ${q.road_name}<br>
+      Queued Vehicles: ${q.queued_vehicle_count}<br>
+      Length: ${q.queue_length_meters} m<br>
+      Status: ${q.status}
+    `, { sticky: true }).addTo(geoLayers.queues);
+  });
+}
+
+function renderLevel4LanesTable(laneMetrics) {
+  const tbody = document.getElementById("tbodyL4Lanes");
+  const badge = document.getElementById("l4LaneCountBadge");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+  if (!laneMetrics || laneMetrics.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No lane data available</td></tr>';
+    return;
+  }
+
+  if (badge) badge.textContent = `${laneMetrics.length} LANES`;
+
+  laneMetrics.forEach(l => {
+    const tr = document.createElement("tr");
+    let regimeBadge = `<span class="badge badge-lime">FLOW</span>`;
+    if (l.speed_regime === "CONGESTED") regimeBadge = `<span class="badge badge-crimson">JAM</span>`;
+    else if (l.speed_regime === "SLOWING") regimeBadge = `<span class="badge badge-orange">SLOW</span>`;
+
+    tr.innerHTML = `
+      <td><b>${l.lane_id.replace('LANE_', 'L')}</b> <span style="color:var(--text-muted); font-size:8.5px;">(${l.approach.split(' ')[0]})</span></td>
+      <td>${l.vehicle_volume}</td>
+      <td style="color:var(--accent-cyan);">${l.flow_vpm}</td>
+      <td>${l.average_speed_kmh} <span style="font-size:8px;">km/h</span></td>
+      <td>${l.density_vpk}</td>
+      <td style="color:${l.active_queue_meters > 0 ? 'var(--accent-crimson)' : 'var(--text-muted)'}">${l.active_queue_meters}m</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderLevel4DesireLinesTable(desireLines) {
+  const tbody = document.getElementById("tbodyL4DesireLines");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+  if (!desireLines || desireLines.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text-muted);">No desire lines available</td></tr>';
+    return;
+  }
+
+  desireLines.forEach(dl => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><b>${dl.movement_id}</b></td>
+      <td><span style="color:var(--text-muted);">${dl.origin.split(' ')[0]} → ${dl.destination.split(' ')[0]}</span></td>
+      <td style="color:var(--accent-lime);">${dl.vehicle_count}</td>
+      <td><span class="badge badge-cyan">${dl.percentage}%</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderLevel4QueuesList(queues) {
+  const container = document.getElementById("l4QueueListContainer");
+  const countBadge = document.getElementById("l4ActiveQueueCount");
+  if (!container) return;
+
+  container.innerHTML = "";
+  const activeQueues = (queues || []).filter(q => q.queued_vehicle_count > 0);
+
+  if (countBadge) {
+    countBadge.textContent = `${activeQueues.length} ACTIVE`;
+    countBadge.className = activeQueues.length > 0 ? "badge badge-crimson" : "badge badge-lime";
+  }
+
+  if (activeQueues.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:10px; color:var(--text-muted); font-size:10.5px;">No active queues detected on road carriageways.</div>';
+    return;
+  }
+
+  activeQueues.forEach(q => {
+    const card = document.createElement("div");
+    card.className = "geo-queue-card";
+    card.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-weight:700; color:var(--text-primary);">${q.approach}</span>
+        <span class="badge badge-crimson">${q.queue_length_meters}m QUEUE</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; color:var(--text-muted); font-size:9px;">
+        <span>VEHICLES: <b style="color:var(--accent-orange);">${q.queued_vehicle_count}</b></span>
+        <span>STATUS: <b style="color:var(--accent-cyan);">${q.status}</b></span>
+        <span>SPEED: <b>${q.average_speed_kmh} km/h</b></span>
+      </div>
+    `;
+    container.appendChild(card);
+  });
+}
+
+function inspectGroundedTrack(trackId) {
+  selectedGroundedTrackId = trackId;
+  if (!level4DataCache || !level4DataCache.grounded_trajectories) return;
+
+  const track = level4DataCache.grounded_trajectories.find(t => t.track_id === trackId);
+  if (!track) return;
+
+  const emptyState = document.getElementById("l4InspectorEmptyState");
+  const content = document.getElementById("l4InspectorContent");
+  const idEl = document.getElementById("l4InspTrackId");
+  const classBadge = document.getElementById("l4InspClassBadge");
+  const gpsEl = document.getElementById("l4InspGps");
+  const roadEl = document.getElementById("l4InspRoad");
+  const appEl = document.getElementById("l4InspApproach");
+  const laneEl = document.getElementById("l4InspLane");
+  const dirEl = document.getElementById("l4InspDir");
+  const statEl = document.getElementById("l4InspStationing");
+  const speedEl = document.getElementById("l4InspSpeed");
+  const qEl = document.getElementById("l4InspQueue");
+  const confBadge = document.getElementById("l4InspConfidenceBadge");
+
+  if (emptyState) emptyState.style.display = "none";
+  if (content) content.style.display = "flex";
+
+  if (idEl) idEl.textContent = `TRACK #${track.track_id}`;
+  if (classBadge) classBadge.textContent = track.class;
+  if (gpsEl) gpsEl.textContent = `${track.latitude.toFixed(6)}, ${track.longitude.toFixed(6)}`;
+  if (roadEl) roadEl.textContent = track.road_segment;
+  if (appEl) appEl.textContent = track.approach;
+  if (laneEl) laneEl.textContent = track.lane;
+  if (dirEl) dirEl.textContent = track.direction;
+  if (statEl) statEl.textContent = `${track.distance_along_segment_m}m along corridor`;
+  if (speedEl) speedEl.textContent = `${track.speed_kmh} km/h (${track.acceleration_mps2 > 0 ? '+' : ''}${track.acceleration_mps2} m/s²)`;
+  if (qEl) {
+    qEl.textContent = track.queue_state;
+    qEl.style.color = track.queue_state === "QUEUED" ? "var(--accent-crimson)" : (track.queue_state === "SLOWING" ? "var(--accent-orange)" : "var(--accent-lime)");
+  }
+  if (confBadge) confBadge.textContent = track.spatial_confidence;
+
+  // Pan map to vehicle position
+  if (geoMap && track.latitude && track.longitude) {
+    geoMap.panTo([track.latitude, track.longitude]);
+  }
 }
 
