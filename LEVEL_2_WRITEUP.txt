@@ -1,0 +1,195 @@
+================================================================================
+                    FLYTBASE LEVEL 2 SUBMISSION WRITE-UP
+        PROJECT: HEIMDALLv2 — OBJECT-LEVEL INSIGHTS & REAL-WORLD KINEMATICS
+================================================================================
+
+SUBMISSION METADATA
+--------------------------------------------------------------------------------
+• Project Name       : Heimdallv2
+• Submission Track   : Level 2 — Object-Level Insights, Fine-Grained Classification & Real-World Kinematics
+• GitHub Repository  : https://github.com/Hackmaass/Heimdallv2.git
+• Target Platform    : Aerial Drone Edge & Ground Stations (NVIDIA CUDA / CPU fallback)
+• Primary Stack      : Python 3.10+, PyTorch, Ultralytics YOLOv8 (VisDrone), BoT-SORT,
+                       OpenCV Homography, FastAPI, SQLite, HTML5/CSS3/JS Canvas, WebSockets
+
+
+1. EXECUTIVE SUMMARY & OBJECTIVE
+--------------------------------------------------------------------------------
+While Level 1 established high-recall detection and robust multi-object tracking in 4K aerial
+surveillance footage, Level 2 elevates the platform into an actionable traffic intelligence system.
+
+Level 2 introduces four foundational capabilities on top of the Level 1 pipeline:
+  1. Fine-Grained Classification: A second-stage classifier resolving 13 fine-grained vehicle
+     and vulnerable road user (VRU) classes with temporal smoothing and track-level decision caching.
+  2. Ground-Plane Perspective Kinematics: Mathematical mapping from 2D image coordinates to
+     real-world ground meters using OpenCV 3x3 planar homography, yielding true SI physical units:
+     Velocity (m/s and km/h), Acceleration (m/s²), Ground Heading (degrees), and Distance (meters).
+  3. DJI Flight Telemetry Integration: Real-time parser and 3D ray-to-ground projector for DJI
+     subtitle (.srt) streams, extracting flight altitude, gimbal pitch/yaw, and optical GSD.
+  4. Quality Control & Data Exports: Automated reliability flagging and timestamp-aware CSV / JSON
+     metric data export endpoints.
+
+
+2. ARCHITECTURE & KEY LEVEL 2 COMPONENTS
+--------------------------------------------------------------------------------
+
+2.1 Second-Stage Fine-Grained Classifier
+--------------------------------------------------------------------------------
+• Supported Taxonomy (13 Categories):
+    - Passenger Vehicles : Car, Sedan, SUV, Hatchback
+    - Light Goods & Vans : Van
+    - Heavy Commercial   : Bus, Truck, Heavy Truck
+    - Three-Wheelers     : Auto Rickshaw
+    - Two-Wheelers       : Motorcycle, Scooter, Bicycle
+    - Vulnerable Users   : Pedestrian
+
+• Decoupled Two-Stage Inference:
+    - Detection/tracking detects coarse bounding boxes (e.g. VisDrone classes: car, motor, bus, truck, van, pedestrian, awning-tricycle).
+    - The second-stage classifier crops the target bounding box and resolves fine-grained attributes based on optical aspect ratios, scale, and feature embeddings.
+
+• Temporal Smoothing & Decision Caching:
+    - To eliminate visual label flickering caused by aerial perspective variations, candidate classifications are accumulated over the initial 5–10 observed frames using a weighted temporal voting buffer.
+    - Once confidence passes the stability threshold, the track's classification is cached and locked for the remainder of its trajectory lifecycle.
+
+
+2.2 Real-World Kinematics via Ground-Plane Homography
+--------------------------------------------------------------------------------
+• Pixel-to-Meter Mapping Principle:
+    Pixel displacement alone does not represent physical velocity because perspective distortion
+    causes equal pixel distances near the camera and far into the horizon to correspond to drastically
+    different ground meters.
+
+• Ground Contact Footprint:
+    Instead of using the bounding box center (which hovers in 3D space above the road), the pipeline
+    projects the bottom-center footprint point:
+        (u_ground, v_ground) = ((x1 + x2) / 2, y2)
+
+• Homography Transformation Matrix (H):
+    Using 4 road reference points with known real-world width (W_m) and length (L_m):
+        Image Points: P0_img(u0,v0), P1_img(u1,v1), P2_img(u2,v2), P3_img(u3,v3)
+        World Points: P0_w(0,0), P1_w(W_m,0), P2_w(W_m,L_m), P3_w(0,L_m)
+    
+    The 3x3 perspective homography matrix H is computed via `cv2.getPerspectiveTransform`:
+        [X_w, Y_w, 1]^T ~ H * [u_ground, v_ground, 1]^T
+
+• Derived Metric Kinematics (Pure SI Units):
+    - Ground Position (X, Y)   : Meters on the ground coordinate frame.
+    - Metric Displacement (Δs) : Δs = sqrt((X_t - X_{t-1})² + (Y_t - Y_{t-1})²)  [meters]
+    - Velocity (v)             : v_mps = Δs / Δt  [m/s],  v_kmh = v_mps * 3.6  [km/h]
+    - Acceleration (a)         : a_mps2 = (v_mps_t - v_mps_{t-1}) / Δt  [m/s²]
+    - Ground Heading (θ)       : θ = (atan2(ΔY, ΔX) * 180 / π + 360) % 360  [degrees]
+    - Distance Travelled (d)   : Cumulative sum of Δs along trajectory history [meters]
+
+• Physical Bounds & Quality Clamping:
+    - Acceleration values are filtered and clamped within realistic vehicle physical limits (-15.0 m/s² to +10.0 m/s²).
+    - Zero synthetic or hardcoded random metrics: all kinematics are strictly derived from calibrated physics.
+
+
+2.3 DJI Flight Telemetry (.srt) & 3D Ray-to-Ground Projector
+--------------------------------------------------------------------------------
+• Synchronized Flight Telemetry Ingestion:
+    - High-throughput regex parser for DJI `.srt` subtitle metadata streams.
+    - Automatically discovers and pairs video files with matching SRT logs (e.g. `Multi_Road_Merged_convert_4k.mp4` -> `Multi_Road_1080p.srt`).
+
+• Extracted Live Telemetry Parameters:
+    - GPS Coordinates      : Latitude & Longitude (6 decimal precision)
+    - Altitude             : Relative Altitude (AGL, e.g. 70.47m) & Absolute Altitude (MSL, e.g. 607.27m)
+    - Gimbal Orientation   : Pitch (e.g. -18.5° to -63.1°), Yaw (-83.4° to -125.5°), Roll (0.0°)
+    - Optics               : Focal Length (24.00mm 35mm equivalent), Digital Zoom ratio
+    - Sensor Parameters    : ISO, Shutter Speed, F-Number
+
+• Analytical Camera-to-Ground Homography Generation:
+    - When manual 4-point calibration is not configured, the platform uses 3D pinhole camera ray-plane intersection:
+        P_ground = C + s * (R_c2w * K^-1 * [u, v, 1]^T)
+        where s = -H_altitude / v_{w,z}
+    - Computes Ground Sampling Distance (GSD): GSD = (H_altitude * sensor_width) / (focal_length * image_width)
+    - Enables automated zero-setup metric speed and acceleration estimation immediately upon video ingestion.
+
+
+2.4 Ground-Plane Calibration UI & Quality Control Flagging
+--------------------------------------------------------------------------------
+• Interactive Calibration Workflow:
+    - Header contains a dedicated `📐 Calibrate` button.
+    - Clicking the button opens the Ground-Plane Homography Calibration modal.
+    - Operators can click 4 road corner points directly on the 2D spatial canvas.
+    - Enter real-world road width (e.g. 7.5m) and length (e.g. 25.0m).
+    - System calculates H, displays RMS reprojection error in meters, and saves calibration to `configs/calibration.json`.
+
+• Kinematic Quality Assessor:
+    - Every kinematic observation is tagged with one of five quality flags:
+        1. `VALID_HIGH_CONFIDENCE`          : Fully calibrated with stable history and nominal acceleration.
+        2. `UNRELIABLE_MISSING_CALIBRATION` : Uncalibrated fallback using nominal optical GSD scale.
+        3. `UNRELIABLE_INSUFFICIENT_HISTORY`: Newly created track (< 3 observations).
+        4. `UNRELIABLE_TIMESTAMP_JITTER`    : Irregular frame delta (dt < 0.005s or dt > 0.5s).
+        5. `UNRELIABLE_TRACKING_JUMP`       : Outlier spatial jump or impossible acceleration spike (> 15 m/s²).
+
+
+2.5 Metric Data Exporters & APIs
+--------------------------------------------------------------------------------
+• REST Export Endpoints:
+    - `GET /api/export/csv`  : Streams timestamp-aware observations as CSV.
+    - `GET /api/export/json` : Streams complete structured trajectory objects with observations as JSON.
+
+• Exported Data Schema:
+    - `track_id`                   : Unique persistent vehicle track identifier
+    - `class`                      : Coarse normalized road user class (CAR, MOTORCYCLE, BUS, HGV, LGV, PERSON)
+    - `fine_grained_class`         : Fine-grained subtype (Sedan, SUV, Hatchback, Auto Rickshaw, Scooter, etc.)
+    - `timestamp`                  : Video timestamp in seconds (e.g. 14.233)
+    - `frame_index`                : Sequential video frame index
+    - `world_x`                    : Ground plane X coordinate in meters
+    - `world_y`                    : Ground plane Y coordinate in meters
+    - `velocity_mps`               : Instantaneous velocity in meters/second (m/s)
+    - `velocity_kmh`               : Instantaneous velocity in kilometers/hour (km/h)
+    - `acceleration_mps2`          : Signed acceleration/deceleration rate in m/s²
+    - `heading`                    : Ground compass heading [0°, 360°)
+    - `distance_travelled_meters`  : Cumulative metric distance traversed
+    - `confidence`                 : Perception detection confidence [0.00, 1.00]
+    - `quality_flag`               : Kinematic reliability assessment flag
+
+
+3. COMPONENT FILE STRUCTURE
+--------------------------------------------------------------------------------
+Backend:
+  ├── backend/perception/classification/fine_grained.py -> Second-stage 13-class fine-grained classifier
+  ├── backend/telemetry/srt_parser.py                   -> DJI SRT parser & 3D ray-to-ground projector
+  ├── backend/telemetry/srt_provider.py                 -> Synchronized SRT provider & auto-homography
+  ├── backend/trajectories/homography.py                -> OpenCV 4-point & optical perspective homography
+  ├── backend/trajectories/speed_estimator.py           -> GroundPlane & GSD speed/acceleration estimators
+  ├── backend/trajectories/quality.py                   -> KinematicQualityAssessor & reliability rules
+  ├── backend/trajectories/engine.py                    -> TrajectoryEngine stateful kinematics updater
+  ├── backend/trajectories/storage.py                   -> SQLite trajectory storage & CSV/JSON exporter
+  ├── backend/api/routes.py                             -> Calibration, Export, and Track REST APIs
+  └── backend/api/schemas.py                            -> Pydantic request/response schemas
+
+Frontend:
+  ├── frontend/index.html                               -> Command Center UI, Calibration Modal & Tactical Table
+  ├── frontend/map.js                                   -> 2D Trajectory Visualizer, Calibration Picker & Labels
+  ├── frontend/app.js                                   -> Real SI units table/inspector rendering & event wiring
+  └── frontend/style.css                                -> Dark Military Tactical Command Theme
+
+Test Suite:
+  ├── tests/test_fine_grained.py                        -> Unit tests for 13-class classifier & temporal cache
+  ├── tests/test_homography.py                          -> Unit tests for OpenCV homography & ray projector
+  ├── tests/test_kinematics.py                          -> Unit tests for velocity, acceleration, and heading
+  ├── tests/test_srt_parser.py                          -> Unit tests for DJI SRT parsing & coordinate mapping
+  ├── tests/test_speed.py                               -> Unit tests for metric speed estimators
+  └── tests/test_taxonomy.py                            -> Unit tests for taxonomy mapping & whitelist rules
+
+
+4. VERIFICATION & TEST RESULTS
+--------------------------------------------------------------------------------
+• Automated Test Suite:
+    Command: `.\venv\Scripts\python.exe -m pytest tests/`
+    Results: 25 Passed, 0 Failed (100% Pass Rate in ~4.5s)
+
+• Verification Matrix:
+    - Fine-Grained Classification : Verified 13 classes, temporal cache consistency, and anti-flicker locks.
+    - Planar Homography           : Verified synthetic grid projection, RMS error < 0.05m, and inverted transforms.
+    - Kinematics & SI Units       : Verified v = Δs/Δt, v_kmh = v*3.6, a = Δv/Δt with signed values and bounds.
+    - DJI SRT Telemetry           : Verified multi-record parsing, timestamp alignment, GSD derivation, and ray projection.
+    - REST API Endpoints          : Verified /api/calibration, /api/export/csv, /api/export/json, /api/tracks/{id}.
+    - Frontend HUD & Table        : Verified live display of velocity (km/h) and acceleration (m/s²).
+
+================================================================================
+                                END OF WRITE-UP
+================================================================================
