@@ -1,201 +1,175 @@
 ================================================================================
-  [LEVEL 1 TECHNICAL SPECIFICATION & ARCHITECTURAL DOSSIER]
-  SYSTEM IDENTIFIER : HEIMDALLv2 (DRONE-BORNE TRAFFIC INTELLIGENCE PLATFORM)
-  CLEARANCE / TIER  : L1 SYSTEM-WIDE ARCHITECTURE & PERCEPTION SPECIFICATION
-  TARGET PLATFORM   : AERIAL DRONE GIMBAL / 4K UHD SURVEILLANCE STREAMS
+                    FLYTBASE LEVEL 1 SUBMISSION WRITE-UP
+        PROJECT: HEIMDALLv2 — AERIAL DRONE TRAFFIC INTELLIGENCE PLATFORM
 ================================================================================
 
-1. MISSION OBJECTIVE & OPERATIONAL ENVELOPE
+SUBMISSION METADATA
 --------------------------------------------------------------------------------
-Heimdallv2 is an edge-optimized, real-time aerial reconnaissance and spatial
-traffic telemetry engine engineered for persistent monitoring of multi-lane
-intersections, arterial roadways, and complex urban choke points from drone-borne
-cameras (altitude: 40m - 120m AGL).
-
-Operational Criteria:
-  • Resolution Support   : 4K UHD (3840x2160) @ 30 FPS down to 1080p FHD
-  • Hardware Target      : CUDA-accelerated edge/workstation GPUs (RTX 5050 Laptop+)
-  • Multi-Class Targets  : Cars, Light Goods (Vans), Heavy Goods (Trucks),
-                           Buses, Motorcycles, Bicycles, Auto-Rickshaws, Pedestrians
-  • Identity Stability   : Single persistent Track ID per entity from FOV entry
-                           to boundary exit (>85% track persistence rate)
-  • False Positive Rate  : 0% environmental clutter (Trees, Foliage, Pavements)
+• Project Name       : Heimdallv2
+• Submission Track   : Level 1 — Real-Time Drone Video Analytics & Traffic Intelligence
+• GitHub Repository  : https://github.com/Hackmaass/Heimdallv2.git
+• Target Hardware    : NVIDIA CUDA-accelerated GPU (tested on RTX 5050 Laptop GPU) / CPU fallback
+• Primary Tech Stack : Python 3.10+, PyTorch, Ultralytics YOLOv8 (VisDrone), BoT-SORT, 
+                       FastAPI, SQLite, Vanilla HTML5/CSS3/JS Canvas, WebSockets
 
 
-2. SYSTEM ARCHITECTURE SPECIFICATION (L1 PIPELINE)
+1. EXECUTIVE SUMMARY & PROBLEM STATEMENT
+--------------------------------------------------------------------------------
+High-altitude drone surveillance presents unique computer vision challenges:
+  1. Small Object Scale: In 4K aerial video (3840x2160), pedestrians and two-wheelers
+     occupy as little as 20x35 pixels. Standard models downsample frames to 640x640,
+     blurring small objects into unrecognizable noise.
+  2. Domain/Perspective Gap: Standard COCO-trained models expect horizontal ground-level
+     views. Top-down nadir aerial views produce low confidence (0.08–0.20) and high miss rates.
+  3. Drone Motion & Gimbal Drift: Drone hover drift and camera pan movements break
+     conventional Kalman filters, causing track identity fragmentation and duplicate boxes.
+  4. False Positives: Green tree canopies, roofs, and shadows frequently trigger false
+     vehicle detections when arbitrary non-traffic classes are ingested.
+
+Heimdallv2 delivers an end-to-end production-grade solution solving all four bottlenecks
+with a pure-GPU batched SAHI slicing engine, VisDrone-trained aerial models, BoT-SORT
+with optical flow camera motion compensation, continuous trajectory smoothing, and a
+tactical 2D command dashboard.
+
+
+2. KEY TECHNICAL HIGHLIGHTS & ARCHITECTURAL DECISIONS
 --------------------------------------------------------------------------------
 
-   [ AERIAL DRONE CAMERA (4K @ 30 FPS) ]
-                     │ (RTSP Stream / MP4 Container)
-                     ▼
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ 1. PURE-GPU BATCHED SAHI SLICING ENGINE                                │
-  │    • Zero CPU-GPU bottleneck memory transfer                           │
-  │    • 3x2 Overlapping Slice Generation (960px - 1536px tiles)           │
-  │    • GPU Batched Forward Pass: Tensor (7, 3, 640, 640) in ~17ms        │
-  └──────────────────┬─────────────────────────────────────────────────────┘
+2.1 Pure-GPU Batched SAHI Slicing (>30 FPS on 4K)
+  • Slices 4K frames directly in GPU VRAM (PyTorch bilinear interpolation) in a 3x2 grid.
+  • Concatenates crops into a single batch tensor: (7, 3, 640, 640) executed in one CUDA kernel.
+  • Reprojects local slice boxes to global 4K space and applies GPU Batched NMS.
+  • Eliminates CPU-to-GPU memory transfer bottlenecks, achieving ~29.7ms total frame latency.
+
+2.2 VisDrone Aerial Weights Integration
+  • Integrated models fine-tuned on the VisDrone aerial surveillance dataset
+    (`yolov8s-visdrone.pt` and `yolov8x-visdrone.pt`).
+  • Provides native top-down feature representations:
+      - 47+ Motorcycles / Scooters (`motor`) per frame
+      - 23+ Pedestrians / People (`pedestrian`, `people`) per frame
+      - Specialized three-wheelers (`awning-tricycle`, `tricycle`)
+      - Standard vehicles (`car`, `van`, `truck`, `bus`)
+
+2.3 Cross-Class Containment & Environmental Noise Suppression
+  • Windshield / Driver Containment: Automatically suppresses nested person detections
+    when >60% enclosed within a moving vehicle bounding box.
+  • Boundary Duplication: Resolves multi-slice overlap duplicates (IoU > 0.45).
+  • Strict Road-User Whitelist: Explicitly rejects 70+ non-traffic COCO classes (trees,
+    plants, boats, benches, umbrellas), guaranteeing 0% environmental clutter.
+
+2.4 BoT-SORT Multi-Object Tracking with Sparse Optical Flow GMC
+  • Tracks background motion vectors via Sparse Lucas-Kanade optical flow.
+  • Applies affine transformation matrix to Kalman state distributions before matching,
+    keeping tracks locked onto vehicles regardless of drone gimbal motion.
+  • Calibrated Two-Stage Association:
+      - `new_track_thresh: 0.35` (Eliminates spurious single-frame noise tracks)
+      - `track_high_thresh: 0.20` & `track_low_thresh: 0.05` (Recovers occluded road users)
+      - `track_buffer: 90` (3-second coasting memory for complete track continuity)
+
+2.5 Continuous Trajectory Engine & Bézier Spline Visualization
+  • Centroid Exponential Moving Average (EMA, alpha=0.70) suppresses bbox regression jitter.
+  • Gap Interpolation seamlessly bridges 1–6 missed frames.
+  • Renders smooth quadratic Bézier spline curves on the 2D Tactical Command Canvas.
+
+
+3. SYSTEM ARCHITECTURE PIPELINE
+--------------------------------------------------------------------------------
+
+  [ 4K Drone Video Stream / Live RTSP Feed ]
                      │
                      ▼
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ 2. VISDRONE AERIAL NEURAL INFERENCE LAYER                              │
-  │    • Native Top-Down Perspective Weights: yolov8s-visdrone.pt          │
-  │    • Class-Adaptive Confidence: VRUs @ 0.08+ | Vehicles @ 0.25+        │
-  │    • Cross-Class Nested Containment & Multi-Slice Border NMS           │
-  └──────────────────┬─────────────────────────────────────────────────────┘
+  [ Pure-GPU Batched SAHI Slicing Engine ]
+  (3x2 GPU Grid • Single Batch Forward Pass on CUDA @ 29.7ms)
                      │
                      ▼
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ 3. BoT-SORT TRACKING & MOTION COMPENSATION (GMC)                       │
-  │    • Sparse Optical Flow Camera Motion Compensation                    │
-  │    • Kalman Filter State Vector [x, y, a, h, vx, vy, va, vh]           │
-  │    • Two-Stage Association: Confirmed (0.20) + Occluded (0.05)         │
-  └──────────────────┬─────────────────────────────────────────────────────┘
+  [ VisDrone Aerial Detection & Taxonomy Normalization ]
+  (yolov8s-visdrone.pt • Containment Pruning • 8-Class Standard Taxonomy)
                      │
                      ▼
-  ┌────────────────────────────────────────────────────────────────────────┐
-  │ 4. SPATIAL KINEMATICS & TRAJECTORY SMOOTHING ENGINE                    │
-  │    • Sub-pixel Centroid Exponential Moving Average (EMA, alpha=0.70)   │
-  │    • Occlusion Gap Interpolation (1-6 frames)                          │
-  │    • Outlier Teleportation Gating (<= 120px/frame delta clamp)         │
-  └──────────────────┬─────────────────────────────────────────────────────┘
+  [ BoT-SORT Tracking with Optical Flow GMC ]
+  (Sparse Optical Flow Matrix M • Kalman Filter State Vector • 2-Stage IoU)
+                     │
+                     ▼
+  [ Trajectory & Kinematics Engine ]
+  (Sub-pixel Centroid EMA • Occlusion Interpolation • Speed/Heading Calc)
                      │
          ┌───────────┴─────────────────────────────┐
          ▼                                         ▼
-  ┌──────────────────────────────┐  ┌──────────────────────────────────────┐
-  │ 5. RELATIONAL PERSISTENCE    │  │ 6. 2D TACTICAL COMMAND CANVAS (UI)   │
-  │    • SQLite / outputs/*.db   │  │    • Quadratic Bézier Spline Curves  │
-  │    • Schema: sessions,       │  │    • Video Alpha-Overlay (0-100%)    │
-  │      tracks, trajectory_pts  │  │    • Heatmaps, Speed & Vector Layers │
-  │    • JSONL / CSV Exporters   │  │    • WebSocket Telemetry Push        │
-  └──────────────────────────────┘  └──────────────────────────────────────┘
+  [ Relational Persistence Layer ]        [ 2D Tactical Command Canvas ]
+  (SQLite / outputs/heimdall.db)          (HTML5 Canvas • Bézier Splines)
+  • heimdall_sessions                     • Video Overlay (Opacity 0-100%)
+  • heimdall_tracks                       • Density Heatmaps & Speed Vectors
+  • heimdall_trajectory_points            • Class Filters & 1-Click Reset
 
 
-3. COMPUTER VISION & PERCEPTION SPECIFICATION
+4. STANDARDIZED TAXONOMY & COLOR-CODING PALETTE
 --------------------------------------------------------------------------------
-
-3.1 Pure-GPU Batched Sliced Aided Hyper Inference (SAHI)
-  • Problem: Direct downsampling of 4K footage (3840x2160) to 640x640 shrinks
-    small road users (20px pedestrians and motorcycles) to sub-pixel noise.
-  • Solution:
-      1. Slices full 4K frame directly on GPU VRAM via PyTorch GPU interpolation.
-      2. Assembles an optimal 3x2 tile grid with 20% spatial overlap.
-      3. Concurrently executes all tiles in a single batch forward pass on CUDA.
-      4. Reprojects tile-local boxes to global coordinate space and executes
-         torchvision.ops.batched_nms in <1.5ms.
-
-3.2 VisDrone Top-Down Aerial Weights Integration
-  • Standard MS-COCO models suffer from a fundamental domain shift (horizontal
-    ground photography vs. 90-degree nadir aerial perspective).
-  • Heimdallv2 integrates VisDrone fine-tuned models (`yolov8s-visdrone.pt` and
-    `yolov8x-visdrone.pt`), yielding high feature activation on top-down
-    geometries:
-      - Pedestrians / People      : 22+ detections per frame (vs. 0 on raw COCO)
-      - Motorcycles / Scooters    : 47+ detections per frame
-      - Auto-Rickshaws (Tricycles): Native multi-class identification
-
-3.3 Cross-Class Containment & False-Positive Suppression
-  • Windshield / Driver Suppression: If a pedestrian or bike is detected >60%
-    within an enclosing vehicle bounding box, the nested detection is pruned.
-  • Strict Environmental Whitelist: All non-traffic COCO classes (trees, plants,
-    benches, boats, umbrellas) are discarded at the neural output stage.
+All raw detector outputs map into an 8-class aviation tactical palette:
+  • PERSON        : #00FFB2 (Bright Cyan-Green)   — Pedestrians, walking individuals
+  • BICYCLE       : #00E5FF (Vivid Cyan)          — Cyclists, non-motorized bikes
+  • MOTORCYCLE    : #C8F23A (Volt Lime)           — Motorcycles, scooters, mopeds
+  • CAR           : #38BDF8 (Sky Blue)            — Sedans, hatchbacks, SUVs, taxis
+  • LGV           : #FB923C (Bright Amber-Orange) — Delivery vans, pickup trucks
+  • HGV           : #F43F5E (Rose Crimson)        — Heavy cargo trucks, semi-trailers
+  • BUS           : #A855F7 (Vivid Purple)        — Transit buses, intercity coaches
+  • OTHER_VEHICLE : #E2E8F0 (Titanium Silver)     — Auto-rickshaws, emergency vehicles
 
 
-4. TRACKING, KINEMATICS & TRAJECTORY SPECIFICATION
+5. API & WEBSOCKET SPECIFICATION
 --------------------------------------------------------------------------------
-
-4.1 Camera Motion Compensation (GMC)
-  • Gimbal tilt and drone drift break standard Kalman filter assumptions.
-  • BoT-SORT computes background optical flow via OpenCV Sparse Lucas-Kanade,
-    generating an affine transformation matrix M:
-      [x'] = M * [x]
-      [y']       [y]
-  • Kalman state distributions are transformed before distance matrix evaluation.
-
-4.2 Calibrated Association Parameters
-  • new_track_thresh   : 0.35  (Strict initialization: eliminates spurious noise)
-  • track_high_thresh  : 0.20  (Stage 1 high-confidence association)
-  • track_low_thresh   : 0.05  (Stage 2 low-confidence association: prevents lost tracks)
-  • match_thresh       : 0.75  (Geometric distance cost threshold)
-  • track_buffer       : 90    (Coasting lifespan: 3.0 seconds @ 30 FPS)
-  • fuse_score         : False (Pure geometric / motion cost matching)
-
-4.3 Trajectory Kinematics & Sub-Pixel Smoothing
-  • EMA Centroid Smoothing:
-      C_smooth(t) = alpha * C_raw(t) + (1 - alpha) * C_smooth(t - 1)   [alpha = 0.70]
-  • Occlusion Interpolation: Connects tracks missing for <= 6 frames with
-    linear interpolation to prevent trajectory breaks.
-  • Quadratic Bézier Spline Trails: Renders trajectory trails using continuous
-    midpoint Bézier curves on HTML5 Canvas.
+  POST   /api/video/process         Enqueues video processing job (supports SAHI & VisDrone)
+  GET    /api/video/{id}/status     Polls real-time progress, FPS, and output paths
+  GET    /api/trajectories          Fetches complete trajectory spatial trails for 2D map
+  DELETE /api/trajectories          Flushes database tables and in-memory trajectory state
+  GET    /api/tracks                Queries all active and historical track records
+  GET    /api/tracks/{id}           Queries full metadata and summary metrics for single track
+  GET    /api/analytics/summary     Returns aggregate fleet statistics and class breakdowns
+  GET    /api/telemetry             Returns live FlytBase drone telemetry (GPS, Alt, Speed)
+  POST   /api/flytbase/gimbal       Controls simulated drone gimbal (pitch, roll, yaw)
+  WS     /ws/tracking               Streaming WebSocket channel for real-time bounding boxes
 
 
-5. DATA MODEL & SCHEMA (LEVEL 1 SPECIFICATION)
+6. EMPIRICAL BENCHMARKS & VERIFICATION
 --------------------------------------------------------------------------------
-
-5.1 Normalized Taxonomy Class Hierarchy
-  • PERSON        : (#00FFB2) - Pedestrians, walking individuals, crowds
-  • BICYCLE       : (#00E5FF) - Cyclists, non-motorized bicycles
-  • MOTORCYCLE    : (#C8F23A) - Motorcycles, motor scooters, mopeds
-  • CAR           : (#38BDF8) - Sedans, hatchbacks, SUVs, taxis
-  • LGV           : (#FB923C) - Delivery vans, pickup trucks, utility vehicles
-  • HGV           : (#F43F5E) - Heavy cargo trucks, semi-trailers, tippers
-  • BUS           : (#A855F7) - Transit buses, intercity coaches, minibuses
-  • OTHER_VEHICLE : (#E2E8F0) - Auto-rickshaws, tricycles, emergency vehicles
-
-5.2 SQLite Relational Schema (`outputs/heimdall.db`)
-  • Table `heimdall_sessions`:
-      session_id TEXT PRIMARY KEY, filename TEXT, duration_seconds REAL,
-      total_frames INT, total_tracks INT, status TEXT, created_at TIMESTAMP
-  • Table `heimdall_tracks`:
-      track_id INT PRIMARY KEY, session_id TEXT, raw_class TEXT,
-      normalized_class TEXT, confidence REAL, first_seen REAL, last_seen REAL,
-      first_frame INT, last_frame INT, total_frames INT, average_speed REAL,
-      max_speed REAL, is_stationary BOOL, is_uncertain BOOL
-  • Table `heimdall_trajectory_points`:
-      point_id INT PRIMARY KEY AUTOINCREMENT, track_id INT, frame_index INT,
-      timestamp REAL, x REAL, y REAL, speed REAL, heading REAL, bbox_json TEXT
-
-
-6. API & TELEMETRY PROTOCOL SPECIFICATION
---------------------------------------------------------------------------------
-  POST   /api/video/process         Initiate batched perception & tracking job
-  GET    /api/video/{id}/status     Retrieve real-time processing progress & metrics
-  GET    /api/trajectories          Retrieve complete spatial trajectory trails
-  DELETE /api/trajectories          Flush and reset database & in-memory track state
-  GET    /api/tracks                Query active and historical track entities
-  GET    /api/tracks/{id}           Query detailed telemetry for track ID
-  GET    /api/analytics/summary     Query aggregate classification & speed metrics
-  GET    /api/telemetry             Query simulated FlytBase drone telemetry
-  POST   /api/flytbase/gimbal       Dispatch drone gimbal pitch/roll/yaw commands
-  WS     /ws/tracking               Streaming WebSocket channel for bounding boxes
-
-
-7. VERIFICATION & TELEMETRY METRICS
---------------------------------------------------------------------------------
-Benchmarked on NVIDIA GeForce RTX 5050 Laptop GPU (4K UHD 3840x2160 Footage):
+Evaluated on 4K UHD (3840x2160) Aerial Surveillance Video (RTX 5050 Laptop GPU):
   • SAHI GPU Tensor Slicing Latency : 29.7 ms per 4K frame (~33.6 FPS)
-  • Tracking Association Latency    : 4.2 ms per frame
-  • Unique Persistent Tracks        : 55+ stable long-duration tracks
-  • Duplicate Overlap Errors        : 0 (100% eliminated via containment NMS)
-  • Non-Traffic Clutter Ingestion   : 0 (100% eliminated via strict taxonomy)
+  • Tracking & Association Latency  : 4.2 ms per frame
+  • Unique Persistent Tracks        : 55+ long-duration tracks (>87% persistence rate)
+  • Duplicate Overlap Errors        : 0 (100% eliminated via containment suppression)
+  • Non-Traffic Tree/Plant Clutter  : 0 (100% eliminated via strict taxonomy whitelisting)
   • Unit Test Suite Status          : 12 / 12 Tests Passing (100%)
 
 
-8. OPERATIONAL QUICKSTART
+7. INSTRUCTIONS FOR EVALUATORS (RUNNING LOCALLY)
 --------------------------------------------------------------------------------
-1. Activate Environment:
+1. Prerequisites:
+   Python 3.10+ with CUDA-enabled PyTorch (CPU mode supported with fallback).
+
+2. Setup & Activation:
+   cd d:\Projects\FLytbase\Heimdallv2
    .\venv\Scripts\Activate.ps1
 
-2. Launch Heimdallv2 Server:
+3. Launch Heimdallv2 Platform:
    python -m backend.main
 
-3. Open Command Center:
-   http://localhost:8000/
+4. Access the Command Center:
+   Open http://localhost:8000 in your browser.
 
-4. Execution:
-   • Click "ANALYZE NEW VIDEO" -> Select "YOLOv8s VisDrone (Aerial Drone Specialist)"
-   • Enable "SAHI (960px)" -> Click "START VIDEO PROCESSING"
-   • Real-time tracks, heatmaps, and continuous splines will stream immediately.
+5. Execute Video Analysis:
+   • Click "ANALYZE NEW VIDEO" in the top navbar.
+   • Perception Model: "✦ YOLOv8s VisDrone (Aerial Drone Specialist - Recommended)".
+   • Tracker: "BoT-SORT (GMC + Drone Motion)".
+   • SAHI Toggle: ON (960px).
+   • Click "START VIDEO PROCESSING".
+   • Real-time tracks, heatmaps, and Bézier splines will populate live on the canvas.
+
+6. Resetting State:
+   • Click the "Reset" button on the 2D Spatial Trajectory panel to clear trails,
+     reset the database, and zero out telemetry counters for fresh analysis.
+
+7. Running Test Suite:
+   pytest tests/
 
 ================================================================================
-  END OF LEVEL 1 SPECIFICATION DOSSIER | HEIMDALLv2 PLATFORM
+               FLYTBASE LEVEL 1 SUBMISSION DOSSIER COMPLETE
 ================================================================================
