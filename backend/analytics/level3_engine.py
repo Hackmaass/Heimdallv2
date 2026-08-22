@@ -172,7 +172,7 @@ class Level3AnalyticsEngine:
         if not filtered_trajs:
             filtered_trajs = trajectories  # Fallback to full set if filters yield zero
 
-        # Duration of observation window in minutes
+        # Duration of observation window in minutes (standardized minimum 1.0 minute for stable physical throughput)
         earliest_time = min((t.first_seen for t in filtered_trajs), default=0.0)
         latest_time = max((t.last_seen for t in filtered_trajs), default=0.0)
         raw_duration_sec = latest_time - earliest_time
@@ -183,10 +183,10 @@ class Level3AnalyticsEngine:
             if max_f > min_f + 30:
                 raw_duration_sec = (max_f - min_f) / 30.0
             else:
-                # Realistic observation time span estimate based on vehicle volume
+                # Realistic observation time span estimate based on vehicle volume (~40 vpm)
                 raw_duration_sec = max(60.0, len(filtered_trajs) * 1.5)
 
-        window_duration_sec = max(30.0, raw_duration_sec)
+        window_duration_sec = max(60.0, raw_duration_sec)
         window_duration_min = window_duration_sec / 60.0
 
         # ── 1. Top 6 Operational KPIs ─────────────────────────────────────────
