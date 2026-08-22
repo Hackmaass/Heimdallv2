@@ -59,6 +59,13 @@ def _run_pipeline_job(
     except Exception:
         pass
 
+    # 1. Discover matching DJI flight telemetry SRT if available
+    from ..telemetry.srt_provider import SRTTelemetryProvider
+    matching_srt = SRTTelemetryProvider.find_matching_srt(video_path)
+    telemetry_provider = None
+    if matching_srt and os.path.exists(matching_srt):
+        telemetry_provider = SRTTelemetryProvider(matching_srt)
+
     pipeline = HeimdallPipeline(
         tracker_type=req.tracker_type or "botsort",
         model_path=req.model_name or "yolov8n.pt",
@@ -69,6 +76,7 @@ def _run_pipeline_job(
         output_dir="outputs",
         enable_sahi=req.enable_sahi if req.enable_sahi is not None else False,
         sahi_slice_size=req.sahi_slice_size or 960,
+        telemetry_provider=telemetry_provider,
     )
 
     def on_frame(payload: Dict[str, Any], frame_bgr):
@@ -117,7 +125,8 @@ async def get_health():
 
 @router.get("/videos")
 async def list_available_videos():
-    """Lists video files available in data/ directory with duration and resolution metadata."""
+    """Lists video files available in data/ directory with duration, resolution and SRT telemetry metadata."""
+    from ..telemetry.srt_provider import SRTTelemetryProvider
     videos = []
     if os.path.exists("data"):
         for f in os.listdir("data"):
@@ -141,6 +150,8 @@ async def list_available_videos():
                 except Exception:
                     pass
 
+                matching_srt = SRTTelemetryProvider.find_matching_srt(p)
+
                 videos.append({
                     "filename": f,
                     "path": p.replace("\\", "/"),
@@ -148,6 +159,8 @@ async def list_available_videos():
                     "duration_seconds": duration_s,
                     "fps": fps,
                     "resolution": res,
+                    "has_srt": bool(matching_srt),
+                    "srt_file": os.path.basename(matching_srt) if matching_srt else None,
                 })
     return {"videos": videos}
 
@@ -272,13 +285,30 @@ async def clear_trajectories():
     return {"status": "SUCCESS", "message": "All trajectories and tracks cleared."}
 
 
-# ── Ground Plane Calibration (Level 2) ──────────────────────────────────────────
-
 @router.get("/calibration")
 async def get_calibration():
     """Retrieves current ground-plane perspective homography calibration status."""
     h = RoadPlaneHomography.load("configs/calibration.json")
-    return h.to_dict()
+    calib_dict = h.to_dict()
+
+    from ..telemetry.srt_provider import SRTTelemetryProvider
+    srt_files = [f for f in os.listdir("data") if f.lower().endswith(".srt")] if os.path.exists("data") else []
+    calib_dict["has_srt_telemetry"] = len(srt_files) > 0
+    calib_dict["srt_files"] = srt_files
+
+    if not h.is_calibrated and srt_files:
+        try:
+            sample_provider = SRTTelemetryProvider(os.path.join("data", srt_files[0]))
+            rec = sample_provider.parser.get_record_by_frame(0)
+            if rec:
+                calib_dict["telemetry_source"] = srt_files[0]
+                calib_dict["telemetry_altitude_m"] = round(rec.rel_alt, 1)
+                calib_dict["telemetry_pitch_deg"] = round(rec.gb_pitch, 1)
+                calib_dict["telemetry_focal_len_mm"] = round(rec.focal_len, 1)
+        except Exception:
+            pass
+
+    return calib_dict
 
 
 @router.post("/calibration")

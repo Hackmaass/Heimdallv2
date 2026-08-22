@@ -10,7 +10,7 @@ SUBMISSION METADATA
 • GitHub Repository  : https://github.com/Hackmaass/Heimdallv2.git
 • Target Hardware    : NVIDIA CUDA-accelerated GPU (tested on RTX 5050 Laptop GPU) / CPU fallback
 • Primary Tech Stack : Python 3.10+, PyTorch, Ultralytics YOLOv8 (VisDrone), BoT-SORT, 
-                       FastAPI, SQLite, Vanilla HTML5/CSS3/JS Canvas, WebSockets, OpenCV
+                       FastAPI, SQLite, Vanilla HTML5/CSS3/JS Canvas, WebSockets, OpenCV, DJI SRT Telemetry
 
 
 1. EXECUTIVE SUMMARY & PROBLEM STATEMENT
@@ -30,6 +30,7 @@ Heimdallv2 delivers an end-to-end production-grade solution solving all bottlene
   • Pure-GPU batched SAHI slicing engine & VisDrone aerial models
   • BoT-SORT tracking with GMC and spatial jump discontinuity gating
   • Second-stage fine-grained vehicle & VRU classifier (13 categories with temporal caching)
+  • DJI Flight Telemetry (.srt) Ingestion & Optical Ray-to-Ground Perspective Projector
   • OpenCV 4-point ground-plane perspective homography & metric kinematics (m/s, km/h, m/s²)
   • Interactive Ground Calibration UI & Quality Control reliability flagging
   • Timestamp-aware CSV and JSON kinematic export engine
@@ -55,7 +56,7 @@ Heimdallv2 delivers an end-to-end production-grade solution solving all bottlene
   • 100% Tree & Clutter Rejection: Strict whitelist filters non-traffic classes (trees, plants, benches).
 
 2.3 Cross-Road Teleportation & Jump Discontinuity Suppression
-  • Gated Maximum Step Kinematics: If a tracker associations shifts by >120px in 1 frame,
+  • Gated Maximum Step Kinematics: If a tracker association shifts by >120px in 1 frame,
     the trajectory engine breaks the history and avoids interpolating artificial points across buildings.
   • Segmented Spline Rendering: Canvas visualizer and video overlay break trails if consecutive points
     exceed 60px, ensuring zero lines ever cut through buildings or non-road geometry.
@@ -67,9 +68,20 @@ Heimdallv2 delivers an end-to-end production-grade solution solving all bottlene
   • Track-Level Decision Caching: Locks the fine-grained class once confirmed, completely eliminating
     frame-to-frame visual flickering.
 
-2.5 Level 2: Real-World Metric Kinematics (OpenCV Homography)
+2.5 Level 2: DJI Flight Telemetry (.srt) & Optical Ground Projection
+  • Synchronized Telemetry Ingestion: Parses DJI `.srt` flight logs (`Multi_Road_1080p.srt`, `Intersection_1080p (1).srt`).
+  • Real Flight Parameters:
+      - Relative Altitude (AGL, e.g. 70.47m) & Absolute Altitude (MSL, e.g. 607.27m)
+      - Gimbal Orientation (Pitch: -18.5° to -63.1°, Yaw: -83.4° to -125.5°, Roll: 0.0°)
+      - Optical Focal Length (24.00mm 35mm equivalent) & Digital Zoom
+      - GPS Latitude & Longitude
+  • Analytical Camera-to-Ground Projection: Employs 3D pinhole camera ray-plane intersection to
+    generate the perspective homography matrix H automatically from flight geometry.
+  • Ground Sampling Distance (GSD): Computes exact ground scale (e.g. 0.027m/px - 0.08m/px).
+
+2.6 Level 2: Real-World Metric Kinematics (OpenCV Homography)
   • Ground Contact Footprint Projection: Maps bottom-center bounding box points (cx, y2) to
-    metric world coordinates (X, Y) in meters using OpenCV perspective homography H.
+    metric world coordinates (X, Y) in meters using perspective homography H.
   • Smooth Trajectory Differentiation: Applies EMA trajectory smoothing before calculating:
       - World X/Y position in meters
       - Velocity in m/s & km/h (v_kmh = v_mps * 3.6)
@@ -78,9 +90,10 @@ Heimdallv2 delivers an end-to-end production-grade solution solving all bottlene
       - Cumulative metric distance travelled (meters)
   • Zero synthetic or fake values: All metrics are derived from actual calibrated physics.
 
-2.6 Level 2: Calibration UI & Quality Control Flagging
-  • Interactive 4-Point Road Quadrangle Picker: User clicks 4 reference points on the 2D canvas,
-    enters road width & length in meters, and views the Root-Mean-Square (RMS) re-projection error.
+2.7 Level 2: Calibration UI & Quality Control Flagging
+  • Dual Calibration:
+      - Auto Mode: Uses DJI SRT flight telemetry altitude and gimbal angles.
+      - Interactive Mode: User marks 4 road corners on 2D map with real-world dimensions.
   • Kinematic Quality Assessor: Automatically flags observations:
       - `VALID_HIGH_CONFIDENCE`
       - `UNRELIABLE_MISSING_CALIBRATION` (explicit fallback to px/s)
@@ -88,7 +101,7 @@ Heimdallv2 delivers an end-to-end production-grade solution solving all bottlene
       - `UNRELIABLE_TIMESTAMP_JITTER` (irregular dt)
       - `UNRELIABLE_TRACKING_JUMP` (excessive acceleration or teleportation)
 
-2.7 Level 2: Timestamp-Aware Metric Data Exports
+2.8 Level 2: Timestamp-Aware Metric Data Exports
   • CSV & JSON Export API: `/api/export/csv` and `/api/export/json`.
   • Columns: track_id, class, fine_grained_class, timestamp, frame_index, world_x, world_y,
     velocity_mps, velocity_kmh, acceleration_mps2, heading, distance_travelled_meters, quality_flag.
@@ -101,7 +114,9 @@ Backend Components:
   ├── backend/perception/detection/   -> FastSAHIDetector (Batched PyTorch GPU SAHI)
   ├── backend/perception/tracking/    -> BoTSORTTracker, ByteTrackTracker, SAHIBoTSORTTracker
   ├── backend/perception/classification/ -> FineGrainedClassifier (13 classes + temporal cache)
-  ├── backend/trajectories/homography.py -> RoadPlaneHomography (OpenCV 4-point metric transform)
+  ├── backend/telemetry/srt_parser.py -> DJISRTParser (Subtitle telemetry parser & 3D ray projector)
+  ├── backend/telemetry/srt_provider.py -> SRTTelemetryProvider (Flight telemetry & auto homography)
+  ├── backend/trajectories/homography.py -> RoadPlaneHomography (OpenCV 4-point & optical transform)
   ├── backend/trajectories/speed_estimator.py -> GroundPlaneSpeedEstimator (m/s, km/h, m/s²)
   ├── backend/trajectories/quality.py -> KinematicQualityAssessor (Quality control flagging)
   ├── backend/trajectories/engine.py  -> TrajectoryEngine (Stateful kinematics + outlier gating)
@@ -118,7 +133,7 @@ Frontend Modules:
 REST Endpoints:
   • GET    /api/trajectories          -> Retrieves all active and persistent trails
   • DELETE /api/trajectories          -> Flushes SQLite database and in-memory trajectory history
-  • GET    /api/calibration           -> Retrieves ground-plane homography calibration status
+  • GET    /api/calibration           -> Retrieves ground-plane homography & SRT telemetry status
   • POST   /api/calibration           -> Calibrates homography from 4 image points and dimensions
   • DELETE /api/calibration           -> Clears calibration and reverts to relative kinematics
   • GET    /api/export/csv            -> Streams full metric observation dataset as CSV
@@ -134,18 +149,15 @@ REST Endpoints:
 2. Open the Command Center in your browser:
      http://localhost:8000/
 
-3. Calibrate Ground Plane:
-     Click "📐 Ground Calibration" -> Click "🎯 Pick on Canvas" -> Click 4 corners of a road rectangle ->
-     Enter Road Width (e.g., 7.5m) and Length (e.g., 25.0m) -> Click "Save & Apply".
+3. Run Video Analytics:
+     Click "Process Video" -> Select video file (e.g. `Multi_Road_Merged_convert_4k.mp4`) ->
+     The system automatically pairs `Multi_Road_1080p.srt` and calculates optical ground homography.
 
-4. Run Video Analytics:
-     Click "Process Video" -> Select video file -> Launch Pipeline.
-
-5. Inspect Object-Level Insights:
+4. Inspect Object-Level Insights:
      Click any tracked road user on the 2D canvas or in the table to view its fine-grained class,
      current km/h velocity, acceleration, world coordinates, distance, and quality status.
 
-6. Download Metric Observations:
+5. Download Metric Observations:
      Click "📥 CSV" or "📥 JSON" in the top navigation bar to download full kinematic exports.
 
 ================================================================================

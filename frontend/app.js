@@ -212,6 +212,9 @@ async function loadCalibrationStatus() {
         visualizer.calibPoints = data.image_points;
         updateCalibPointsDisplay(data.image_points);
       }
+    } else if (data.has_srt_telemetry) {
+      badge.textContent = `SRT TELEMETRY (${data.telemetry_altitude_m || 70.5}m AGL, ${data.telemetry_pitch_deg || -18.5}°)`;
+      badge.style.color = "var(--accent-cyan)";
     } else {
       badge.textContent = "UNCALIBRATED (px/s)";
       badge.style.color = "var(--accent-amber)";

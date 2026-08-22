@@ -134,6 +134,20 @@ class HeimdallPipeline:
         width = video_source.width or 1920
         height = video_source.height or 1080
 
+        # Auto-calibrate ground homography from flight telemetry if not manually calibrated
+        if not self.trajectory_engine.speed_estimator.is_calibrated and hasattr(self.telemetry_provider, "get_ground_homography"):
+            try:
+                telemetry_h = self.telemetry_provider.get_ground_homography(
+                    image_width=width,
+                    image_height=height,
+                    frame_index=0,
+                    timestamp=0.0,
+                )
+                if telemetry_h and telemetry_h.is_calibrated:
+                    self.trajectory_engine.set_calibration(telemetry_h)
+            except Exception:
+                pass
+
         # Create video writer if enabled
         video_writer = None
         annotated_video_path = os.path.join(self.output_dir, f"{video_id}_annotated.mp4")
