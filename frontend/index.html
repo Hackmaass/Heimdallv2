@@ -3,63 +3,51 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HEIMDALL-v2 | Drone Traffic Intelligence Platform</title>
-  <!-- Tactical Modern Monospace & Interface Fonts -->
+  <title>HEIMDALLv2 — Autonomous Drone Aerial Traffic Command</title>
+  <link rel="stylesheet" href="/static/style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,600;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-
-  <div class="app-layout">
-
-    <!-- Top Tactical Command Bar -->
-    <header class="top-nav">
-      <div class="brand">
-        <div class="logo-radar">
-          <div class="sweep"></div>
+  <div class="app-container">
+    
+    <!-- Top Navigation & System Status HUD -->
+    <header class="top-bar">
+      <div class="brand-section">
+        <div class="brand-logo">
+          <div class="dot" id="wsStatusDot"></div>
+          <span>HEIMDALL<span style="color:var(--accent-cyan)">v2</span></span>
         </div>
-        <div class="brand-text">
-          <h1>HEIMDALL<span>v2</span></h1>
-          <span class="sub">DRONE TRAFFIC INTELLIGENCE • LEVEL 2 KINEMATICS</span>
+        <span class="badge badge-cyan" id="wsStatusText">CONNECTING...</span>
+        <span class="badge badge-lime">LEVEL 1: TRACK & DETECT</span>
+      </div>
+
+      <div class="header-status-metrics">
+        <div class="metric-pill">
+          <span class="label">Active Tracks</span>
+          <span class="val" id="headerActiveCount" style="color:var(--accent-cyan)">0</span>
+        </div>
+        <div class="metric-pill">
+          <span class="label">Total Road Users</span>
+          <span class="val" id="headerTotalUnique" style="color:var(--accent-lime)">0</span>
+        </div>
+        <div class="metric-pill">
+          <span class="label">Current Frame</span>
+          <span class="val" id="headerFrameCount">0</span>
+        </div>
+        <div class="metric-pill">
+          <span class="label">FlytBase Dock</span>
+          <span class="val" style="color:var(--accent-blue)">DOCK-01 (MOCK)</span>
         </div>
       </div>
 
-      <div class="status-bar">
-        <div class="status-item">
-          <span class="label">STREAM</span>
-          <span class="val pulse" id="sysWsStatus" style="color:var(--accent-lime)">CONNECTING</span>
-        </div>
-        <div class="status-item">
-          <span class="label">METRIC KINEMATICS</span>
-          <span class="val" id="headerCalibStatus" style="color:var(--accent-amber)">UNCALIBRATED (px/s)</span>
-        </div>
-        <div class="status-item">
-          <span class="label">ACTIVE OBJECTS</span>
-          <span class="val" id="sysActiveTracks">0</span>
-        </div>
-        <div class="status-item">
-          <span class="label">TOTAL UNIQUE</span>
-          <span class="val" id="sysTotalTracks">0</span>
-        </div>
-        <div class="status-item">
-          <span class="label">FLYTEBASE DOCK</span>
-          <span class="val" style="color:var(--accent-blue)">DOCK-01 (ONLINE)</span>
-        </div>
-      </div>
-
-      <div class="controls-section" style="display:flex; gap:8px;">
-        <button class="btn btn-outline" id="btnOpenCalib" type="button" title="Calibrate real-world ground plane homography">
-          📐 Ground Calibration
-        </button>
-        <button class="btn btn-outline" id="btnExportCsv" type="button" title="Download timestamp-aware kinematic observations as CSV">
-          📥 CSV
-        </button>
-        <button class="btn btn-outline" id="btnExportJson" type="button" title="Download structured kinematic observations as JSON">
-          📥 JSON
-        </button>
-        <button class="btn btn-primary" id="btnOpenProcess" type="button">
+      <div class="controls-section" style="display:flex; gap:8px; align-items:center;">
+        <span class="badge" id="headerCalibStatus" style="font-size:10px; background:rgba(56,189,248,0.1); color:var(--accent-cyan);">SRT TELEMETRY</span>
+        <button class="btn" id="btnOpenCalib" type="button" style="font-size:11px; padding:6px 10px;">📐 Calibrate</button>
+        <a class="btn" id="btnExportCsv" href="/api/export/csv" download style="font-size:11px; padding:6px 10px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">📥 CSV</a>
+        <a class="btn" id="btnExportJson" href="/api/export/json" download style="font-size:11px; padding:6px 10px; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">📥 JSON</a>
+        <button class="btn btn-primary" id="btnOpenProcess">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
           Process Video
         </button>
@@ -93,6 +81,7 @@
 
         <div class="panel-content">
           <div class="video-viewport" id="videoViewport">
+            <!-- Live Stream Canvas -->
             <img id="liveVideoCanvas" alt="Live Drone Teleoperation Feed" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' viewBox='0 0 640 480'><rect fill='%23090d16' width='640' height='480'/><text fill='%2364748b' font-family='monospace' font-size='14' x='50%' y='50%' dominant-baseline='middle' text-anchor='middle'>WAITING FOR VIDEO STREAM OR PROCESS PIPELINE...</text></svg>">
 
             <!-- Recorded Annotated Video Player -->
@@ -153,17 +142,14 @@
         </div>
 
         <div class="panel-content">
-          <div class="map-viewport" id="mapViewport">
-            <canvas id="trajectoryCanvas"></canvas>
-            <div class="canvas-instructions" id="canvasHint">
-              DRAG TO PAN • SCROLL TO ZOOM • CLICK OBJECT TO INSPECT KINEMATICS
-            </div>
+          <div class="trajectory-canvas-container">
+            <canvas id="trajectoryMapCanvas"></canvas>
           </div>
         </div>
       </section>
 
-      <!-- RIGHT: FlytBase Telemetry, Fine-Grained Breakdown & Object Inspector -->
-      <aside class="panel side-panel">
+      <!-- RIGHT: Telemetry & Traffic Taxonomy Analytics Sidebar -->
+      <aside class="panel sidebar-panel">
         
         <!-- Drone Telemetry Card -->
         <div class="card">
@@ -199,52 +185,42 @@
           </div>
         </div>
 
-        <!-- Level 2 Fine-Grained Vehicle & VRU Breakdown -->
+        <!-- Road User Breakdown -->
         <div class="card">
-          <div class="card-title">
-            <span>Fine-Grained Classification</span>
-            <span class="badge badge-blue">13 CLASSES</span>
-          </div>
-          <div class="class-breakdown-list" id="fineGrainedBreakdownList">
+          <div class="card-title">Active Road Users By Class</div>
+          <div class="class-breakdown-list">
             <div class="class-row">
               <div class="class-label-wrapper">
                 <div class="class-indicator" style="background:#38BDF8"></div>
-                <span>Cars (Sedan / SUV / Hatchback)</span>
+                <span>Cars / Sedans / SUVs</span>
               </div>
               <span class="class-count" id="countCars" style="color:#38BDF8">0</span>
             </div>
             <div class="class-row">
               <div class="class-label-wrapper">
-                <div class="class-indicator" style="background:#FACC15"></div>
-                <span>Auto Rickshaws / 3-Wheelers</span>
-              </div>
-              <span class="class-count" id="countRickshaws" style="color:#FACC15">0</span>
-            </div>
-            <div class="class-row">
-              <div class="class-label-wrapper">
                 <div class="class-indicator" style="background:#C8F23A"></div>
-                <span>Motorcycles & Scooters</span>
+                <span>Motorcycles / Scooters</span>
               </div>
               <span class="class-count" id="countBikes" style="color:#C8F23A">0</span>
             </div>
             <div class="class-row">
               <div class="class-label-wrapper">
                 <div class="class-indicator" style="background:#A855F7"></div>
-                <span>Buses / Transit Coaches</span>
+                <span>Buses / Transit</span>
               </div>
               <span class="class-count" id="countBuses" style="color:#A855F7">0</span>
             </div>
             <div class="class-row">
               <div class="class-label-wrapper">
                 <div class="class-indicator" style="background:#F43F5E"></div>
-                <span>Trucks & Heavy Goods (HGV)</span>
+                <span>Heavy Goods (HGV / Trucks)</span>
               </div>
               <span class="class-count" id="countHgv" style="color:#F43F5E">0</span>
             </div>
             <div class="class-row">
               <div class="class-label-wrapper">
                 <div class="class-indicator" style="background:#FB923C"></div>
-                <span>Vans & Light Goods (LGV)</span>
+                <span>Light Goods (LGV / Vans)</span>
               </div>
               <span class="class-count" id="countLgv" style="color:#FB923C">0</span>
             </div>
@@ -258,15 +234,19 @@
           </div>
         </div>
 
-        <!-- Level 2 Object Inspector Card -->
+        <!-- Selected Track Inspector Card -->
         <div class="card" id="inspectorCard" style="display:none">
           <div class="card-title">
-            <span>Inspector: <span id="inspId">#--</span></span>
-            <span class="badge badge-cyan" id="inspFineClass">CAR</span>
+            <span>Track Inspector: <span id="inspId">#--</span></span>
+            <span class="badge badge-cyan" id="inspClass">CAR</span>
           </div>
           <div class="telemetry-grid">
             <div class="telemetry-item">
-              <div class="t-label">VELOCITY (SPEED)</div>
+              <div class="t-label">FINE-GRAINED CLASS</div>
+              <div class="t-val" id="inspFineClass" style="color:var(--accent-cyan)">--</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">SPEED</div>
               <div class="t-val" id="inspSpeed" style="color:var(--accent-lime)">--</div>
             </div>
             <div class="telemetry-item">
@@ -274,25 +254,25 @@
               <div class="t-val" id="inspAccel">--</div>
             </div>
             <div class="telemetry-item">
-              <div class="t-label">WORLD GROUND POS</div>
+              <div class="t-label">WORLD POSITION</div>
               <div class="t-val" id="inspWorldPos" style="font-size:11px">--</div>
             </div>
             <div class="telemetry-item">
-              <div class="t-label">HEADING (BEARING)</div>
-              <div class="t-val" id="inspHeading">--</div>
-            </div>
-            <div class="telemetry-item">
-              <div class="t-label">DISTANCE TRAVELLED</div>
+              <div class="t-label">TRAIL DISTANCE</div>
               <div class="t-val" id="inspDist">--</div>
             </div>
             <div class="telemetry-item">
-              <div class="t-label">KINEMATICS QUALITY</div>
-              <div class="t-val" id="inspQuality" style="font-size:10px">VALID</div>
+              <div class="t-label">QUALITY</div>
+              <div class="t-val" id="inspQuality" style="font-size:10.5px">VALID</div>
             </div>
-          </div>
-          <div style="margin-top:8px; font-family:var(--font-mono); font-size:10px; color:var(--text-muted); display:flex; justify-content:space-between;">
-            <span>CONFIDENCE: <b id="inspConf" style="color:var(--text-primary)">--</b></span>
-            <span>DURATION: <b id="inspDuration" style="color:var(--text-primary)">--</b></span>
+            <div class="telemetry-item">
+              <div class="t-label">FRAMES TRACKED</div>
+              <div class="t-val" id="inspFrames">--</div>
+            </div>
+            <div class="telemetry-item">
+              <div class="t-label">DURATION SEEN</div>
+              <div class="t-val" id="inspDuration">--</div>
+            </div>
           </div>
         </div>
 
@@ -305,29 +285,27 @@
             <div class="indicator" style="background:var(--accent-blue)"></div>
             <span>Live Persistent Track Registry & Kinematics Log</span>
           </div>
-          <div style="display:flex; gap:12px; align-items:center;">
-            <span style="color:var(--text-muted); font-size:10px">CLICK ROW TO INSPECT KINEMATICS</span>
-          </div>
+          <span style="color:var(--text-muted); font-size:10px">CLICK ROW TO INSPECT TRAJECTORY TRAIL</span>
         </div>
         <div class="panel-content track-table-container">
           <table class="tactical-table">
             <thead>
               <tr>
                 <th>TRACK ID</th>
-                <th>FINE-GRAINED CLASS</th>
+                <th>CLASS</th>
+                <th>SUBCLASS</th>
                 <th>CONFIDENCE</th>
-                <th>VELOCITY</th>
+                <th>SPEED</th>
                 <th>ACCELERATION</th>
-                <th>WORLD POS (X, Y)</th>
                 <th>HEADING</th>
-                <th>DISTANCE</th>
-                <th>QUALITY STATUS</th>
+                <th>DURATION</th>
+                <th>QUALITY</th>
               </tr>
             </thead>
             <tbody id="tracksTableBody">
               <tr>
                 <td colspan="9" style="text-align:center; padding:20px; color:var(--text-muted)">
-                  No active tracks detected. Launch video processing to initialize tracking and metric kinematics.
+                  No active tracks detected. Launch video processing to initialize BoT-SORT.
                 </td>
               </tr>
             </tbody>
@@ -338,135 +316,158 @@
     </main>
   </div>
 
-  <!-- Modal for Ground-Plane Homography Calibration (Level 2) -->
-  <div class="modal-backdrop" id="calibModal">
-    <div class="modal-card" style="max-width:540px;">
-      <div class="modal-title">
-        <div class="title-badge">
-          <div class="indicator" style="background:var(--accent-cyan)"></div>
-          <span>Ground-Plane Perspective Homography Calibration</span>
-        </div>
-        <button class="tool-btn" type="button" onclick="document.getElementById('calibModal').classList.remove('open')">✕</button>
-      </div>
-
-      <div style="font-size:11.5px; color:var(--text-secondary); margin-bottom:14px; line-height:1.5;">
-        Calibrate image coordinates to real-world ground meters via OpenCV 4-point perspective transform.
-        Click 4 corners of a known road corridor / quadrangle on the 2D canvas, then enter the real-world dimensions.
-      </div>
-
-      <div style="background:var(--bg-darkest); border:1px solid var(--border-subtle); border-radius:4px; padding:10px; margin-bottom:14px; font-family:var(--font-mono); font-size:11px;">
-        <div style="display:flex; justify-content:space-between; margin-bottom:6px;">
-          <span style="color:var(--accent-cyan); font-weight:700;">CALIBRATION REFERENCE POINTS:</span>
-          <button class="tool-btn" id="btnPickPointsCanvas" type="button" style="color:var(--accent-lime)">🎯 Pick on Canvas</button>
-        </div>
-        <div id="calibPointsList" style="color:var(--text-muted); font-size:10.5px;">
-          P0 (Top-Left): (0, 0)<br>
-          P1 (Top-Right): (0, 0)<br>
-          P2 (Bottom-Right): (0, 0)<br>
-          P3 (Bottom-Left): (0, 0)
-        </div>
-      </div>
-
-      <div class="form-grid" style="grid-template-columns: 1fr 1fr; margin-bottom:14px;">
-        <div class="form-group">
-          <label>ROAD CORRIDOR WIDTH (METERS)</label>
-          <input type="number" id="calibWidthM" step="0.1" value="7.5" min="1.0" placeholder="e.g. 7.5 (2 lanes)">
-        </div>
-        <div class="form-group">
-          <label>ROAD CORRIDOR LENGTH (METERS)</label>
-          <input type="number" id="calibLengthM" step="0.5" value="25.0" min="1.0" placeholder="e.g. 25.0">
-        </div>
-      </div>
-
-      <div id="calibErrorBanner" style="display:none; padding:8px 10px; border-radius:4px; margin-bottom:14px; font-family:var(--font-mono); font-size:11px;">
-      </div>
-
-      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border-subtle); padding-top:14px;">
-        <button class="btn btn-outline" id="btnClearCalib" type="button" style="color:var(--accent-rose)">Clear Calibration</button>
-        <div style="display:flex; gap:8px;">
-          <button class="btn" type="button" onclick="document.getElementById('calibModal').classList.remove('open')">Cancel</button>
-          <button class="btn btn-primary" id="btnSaveCalib" type="button">Save & Apply</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Modal for Video Processing & Upload Configuration -->
   <div class="modal-backdrop" id="processModal">
     <div class="modal-card">
       <div class="modal-title">
-        <div class="title-badge">
-          <div class="indicator"></div>
-          <span>Launch FlytBase Video Analytics Pipeline</span>
-        </div>
-        <button class="tool-btn" type="button" onclick="document.getElementById('processModal').classList.remove('open')">✕</button>
+        <span>RUN HEIMDALL PERCEPTION & TRACKING PIPELINE</span>
+        <button class="tool-btn" id="btnCloseModal">✕</button>
       </div>
 
-      <div id="modalFormContent">
-        <div class="form-group">
-          <label>SOURCE VIDEO FILE / SELECTION</label>
-          <div class="input-with-action">
-            <select id="selectVideoFile">
-              <option value="data/Multi_Road_Merged_convert_4k.mp4">Multi_Road_Merged_convert_4k.mp4 (4K Multi-Road Corridor)</option>
-              <option value="data/multi_ped_convert_4k.mp4">multi_ped_convert_4k.mp4 (4K High-Density VRU/Pedestrian)</option>
-            </select>
-          </div>
-          <div class="upload-dropzone" id="dropzoneUpload">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-bottom:8px; color:var(--text-muted);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
-            <div style="font-size:12px; font-weight:600;">Click to upload custom drone MP4</div>
-            <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Supports 1080p / 4K H.264 & H.265 files</div>
-            <input type="file" id="inputVideoUpload" accept="video/mp4,video/avi,video/mov,video/mkv" style="display:none;">
-          </div>
+      <div id="modalForm">
+        
+        <!-- Video Source Selection Tabs -->
+        <div class="modal-tabs">
+          <button class="modal-tab active" id="tabUpload" type="button">UPLOAD VIDEO FILE</button>
+          <button class="modal-tab" id="tabExisting" type="button">SELECT SERVER VIDEO</button>
         </div>
 
-        <div class="form-grid">
-          <div class="form-group">
-            <label>OBJECT DETECTION MODEL</label>
-            <select id="selectModel">
-              <option value="yolov8s-visdrone.pt" selected>YOLOv8s-VisDrone (Optimized for Aerial Drone Traffic)</option>
-              <option value="yolov8x-visdrone.pt">YOLOv8x-VisDrone (High-Precision Heavy Aerial)</option>
-              <option value="yolov8n.pt">YOLOv8n (Standard Fast COCO)</option>
-              <option value="yolov8m.pt">YOLOv8m (Standard Balanced COCO)</option>
-              <option value="yolov8x.pt">YOLOv8x (Standard High-Accuracy COCO)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>TRACKING ALGORITHM</label>
-            <select id="selectTracker">
-              <option value="botsort" selected>BoT-SORT (GMC + Kalman Filter)</option>
-              <option value="bytetrack">ByteTrack (Low-Latency Two-Stage)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="form-grid">
-          <div class="form-group">
-            <label>MAX PROCESSING DURATION (SEC)</label>
-            <select id="selectDuration">
-              <option value="15">15 Seconds (Fast Test Run)</option>
-              <option value="30">30 Seconds (Standard Analysis)</option>
-              <option value="60">60 Seconds (Extended Survey)</option>
-              <option value="all" selected>Full Video (Complete Flight)</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>CONFIDENCE THRESHOLD</label>
-            <select id="selectConfidence">
-              <option value="0.15">0.15 (High Recall / Tiny Objects)</option>
-              <option value="0.25" selected>0.25 (Balanced ✦ Recommended)</option>
-              <option value="0.40">0.40 (High Precision)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- SAHI Sliced Inference Option for High-Altitude Distant Highway Traffic -->
-        <div style="background:rgba(56, 189, 248, 0.05); border:1px solid var(--border-subtle); border-radius:4px; padding:10px 12px; margin-bottom:16px;">
-          <div style="display:flex; align-items:center; justify-content:space-between;">
-            <div>
-              <div style="font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--accent-cyan);">SAHI Sliced Inference (4K Aerial)</div>
-              <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Tiles 4K frames for tiny small-object detection on distant highways</div>
+        <!-- 1. Upload Video Pane -->
+        <div id="paneUpload">
+          <div class="upload-dropzone" id="uploadDropzone">
+            <input type="file" id="videoFileInput" accept="video/mp4,video/avi,video/mov,video/mkv,.mp4,.avi,.mov,.mkv" style="display:none">
+            <div class="upload-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
             </div>
-            <input type="checkbox" id="checkEnableSAHI" style="width:16px; height:16px; cursor:pointer;">
+            <div class="upload-text-main" id="uploadDropText">Click or Drag & Drop Aerial Drone Video Here</div>
+            <div class="upload-text-sub">Supports MP4, AVI, MOV, MKV (Up to 4K Aerial Footage)</div>
+          </div>
+        </div>
+
+        <!-- 2. Existing Videos Pane -->
+        <div id="paneExisting" style="display:none;">
+          <div class="form-group">
+            <label>CHOOSE FOOTAGE FROM DATA/ REPOSITORY</label>
+            <select id="selectExistingVideo">
+              <option value="">Loading available videos...</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Selected Video Status Card -->
+        <div class="video-selected-info" id="selectedVideoCard" style="display:none;">
+          <div>
+            <div style="font-weight:700; color:var(--text-primary)" id="selectedVideoName">drone_test.mp4</div>
+            <div class="video-selected-meta" id="selectedVideoMeta">1.8 MB | 10.0s | 30 FPS</div>
+          </div>
+          <span class="badge badge-cyan" id="selectedVideoBadge">READY</span>
+        </div>
+
+        <!-- Duration & Time Window Processing Options -->
+        <div class="form-group" style="background:rgba(15,23,42,0.6); border:1px solid var(--border-subtle); padding:12px; border-radius:6px; margin-top:8px;">
+          <label>
+            <span>PROCESSING TIME WINDOW & DURATION</span>
+            <span class="highlight" id="durationHint">Full Video</span>
+          </label>
+          
+          <div style="display:flex; gap:16px; margin-bottom:8px;">
+            <label class="checkbox-label">
+              <input type="radio" name="durationMode" id="radioFullVideo" value="full" checked>
+              <span>Process Full Video</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="radio" name="durationMode" id="radioLimitDuration" value="limit">
+              <span>Limit Duration (Time Window)</span>
+            </label>
+          </div>
+
+          <!-- Time limit inputs (toggled) -->
+          <div id="timeLimitControls" style="display:none; margin-top:10px;">
+            <div class="form-row-2">
+              <div>
+                <label style="font-size:10px;">DURATION TO PROCESS (SECONDS)</label>
+                <input type="number" id="inputDuration" min="1" max="3600" step="1" value="10" placeholder="e.g. 10">
+              </div>
+              <div>
+                <label style="font-size:10px;">START OFFSET (SECONDS)</label>
+                <input type="number" id="inputStartOffset" min="0" max="3600" step="1" value="0" placeholder="e.g. 0">
+              </div>
+            </div>
+
+            <!-- Quick Duration Presets -->
+            <div class="duration-preset-grid">
+              <button type="button" class="preset-btn active" data-sec="10">10 sec</button>
+              <button type="button" class="preset-btn" data-sec="30">30 sec</button>
+              <button type="button" class="preset-btn" data-sec="60">1 min</button>
+              <button type="button" class="preset-btn" data-sec="120">2 min</button>
+              <button type="button" class="preset-btn" data-sec="300">5 min</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Perception & Tracker Configurations -->
+        <div class="form-row-2" style="margin-top:12px;">
+          <div class="form-group">
+            <label>PERCEPTION MODEL</label>
+            <select id="selectModel">
+              <option value="yolov8s-visdrone.pt" selected>✦ YOLOv8s VisDrone (Aerial Drone Specialist - Recommended)</option>
+              <option value="yolov8x-visdrone.pt">YOLOv8x VisDrone (Maximum Aerial Drone Precision)</option>
+              <option value="yolov8s.pt">YOLOv8 Small (Standard COCO)</option>
+              <option value="yolov8m.pt">YOLOv8 Medium (High Density Traffic)</option>
+              <option value="yolov8x.pt">YOLOv8 Extra-Large (COCO RTX GPU)</option>
+              <option value="yolov8n.pt">YOLOv8 Nano (Ultra-Fast / Power-Efficient)</option>
+              <option value="yolov8s-worldv2.pt">YOLO-World v2 (Open-Vocabulary)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>TRACKER ALGORITHM</label>
+            <select id="selectTracker">
+              <option value="botsort" selected>BoT-SORT (GMC + Drone Motion)</option>
+              <option value="bytetrack">ByteTrack (High-Speed / Low Power)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row-2">
+          <div class="form-group">
+            <label>DETECTION CONFIDENCE</label>
+            <input type="number" id="inputConf" min="0.1" max="0.9" step="0.05" value="0.25">
+          </div>
+
+          <div class="form-group">
+            <label>FRAME STEPPING (POWER SAVE)</label>
+            <select id="selectFrameStep">
+              <option value="1" selected>Every Frame (1x / 30 FPS)</option>
+              <option value="2">Every 2nd Frame (2x Speed / 50% Power)</option>
+              <option value="3">Every 3rd Frame (3x Speed / 66% Power)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Checkbox Options -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; margin-bottom:12px;">
+          <label class="checkbox-label">
+            <input type="checkbox" id="checkSaveVideo" checked>
+            <span>Render & Save Annotated Video (.mp4)</span>
+          </label>
+        </div>
+
+        <!-- SAHI 4K Enhancement Toggle -->
+        <div class="sahi-control-block" style="background: linear-gradient(135deg, rgba(99,102,241,0.12), rgba(14,165,233,0.10)); border:1px solid rgba(99,102,241,0.35); padding:14px 16px; border-radius:8px; margin-bottom:16px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div>
+              <div style="font-weight:700; font-size:11px; letter-spacing:0.6px; color:var(--accent-primary);">⚡ SAHI — SLICED AIDED HYPER INFERENCE</div>
+              <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">Slices 4K frames into overlapping tiles for high-recall small-object detection</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="checkEnableSAHI">
+              <span class="toggle-slider"></span>
+            </label>
           </div>
 
           <div id="sahiOptions" style="display:none; margin-top:10px;">
@@ -531,6 +532,55 @@
         </div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- Ground-Plane Perspective Homography Calibration Modal -->
+  <div class="modal-backdrop" id="calibModal">
+    <div class="modal-card" style="max-width:560px;">
+      <div class="modal-title">
+        <span>GROUND-PLANE HOMOGRAPHY CALIBRATION</span>
+        <button class="tool-btn" id="btnCloseCalibModal">✕</button>
+      </div>
+
+      <div style="font-size:11.5px; color:var(--text-secondary); line-height:1.5; margin-bottom:12px;">
+        Maps aerial pixel displacements to real-world ground meters using OpenCV perspective transformation.
+      </div>
+
+      <!-- Telemetry Info Card -->
+      <div id="calibTelemetryCard" style="background:rgba(15,23,42,0.6); border:1px solid var(--border-subtle); padding:10px 14px; border-radius:6px; margin-bottom:12px; font-size:11px;">
+        <div style="font-weight:700; color:var(--accent-cyan); margin-bottom:4px;">✦ DJI Flight Telemetry Active</div>
+        <div id="calibTelemetryDetails" style="color:var(--text-muted);">Altitude: 70.5m AGL | Gimbal Pitch: -18.5° | Focal Length: 24.0mm</div>
+      </div>
+
+      <div class="form-group">
+        <label>CALIBRATION ROAD DIMENSIONS</label>
+        <div class="form-row-2">
+          <div>
+            <label style="font-size:10px;">ROAD WIDTH (METERS)</label>
+            <input type="number" id="calibWidthM" step="0.1" value="7.5" min="1.0" placeholder="e.g. 7.5">
+          </div>
+          <div>
+            <label style="font-size:10px;">ROAD LENGTH (METERS)</label>
+            <input type="number" id="calibLengthM" step="0.5" value="25.0" min="1.0" placeholder="e.g. 25.0">
+          </div>
+        </div>
+      </div>
+
+      <div style="background:rgba(9,13,22,0.8); border:1px solid var(--border-subtle); padding:10px; border-radius:6px; margin-bottom:14px;">
+        <div style="font-size:10.5px; font-weight:700; color:var(--text-primary); margin-bottom:4px;">REFERENCE POINTS (4 CORNERS):</div>
+        <div id="calibPointsList" style="font-family:var(--font-mono); font-size:10.5px; color:var(--text-secondary);">
+          Click 4 road corners on the 2D canvas: P0 (Top-Left), P1 (Top-Right), P2 (Bottom-Right), P3 (Bottom-Left)
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid var(--border-subtle); padding-top:14px;">
+        <button class="btn btn-danger" id="btnClearCalib" type="button">Reset Calibration</button>
+        <div style="display:flex; gap:8px;">
+          <button class="btn" id="btnCancelCalib" type="button">Close</button>
+          <button class="btn btn-primary" id="btnSaveCalib" type="button">Compute & Save Homography</button>
+        </div>
+      </div>
     </div>
   </div>
 
