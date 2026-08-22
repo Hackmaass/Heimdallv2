@@ -1392,38 +1392,103 @@ function renderIntersectionMovements(movements) {
     return;
   }
 
-  // Draw Intersection Geometry in SVG
-  const center = 100;
-  const armLen = 80;
+  // Pre-define 12 standard movement paths in SVG coordinates (200x200 canvas)
+  const pathMap = {
+    "N → S": "M 92 18 L 92 182",
+    "N → W": "M 92 18 Q 92 92 18 92",
+    "N → E": "M 92 18 Q 92 108 182 108",
+    "S → N": "M 108 182 L 108 18",
+    "S → E": "M 108 182 Q 108 108 182 108",
+    "S → W": "M 108 182 Q 108 92 18 92",
+    "E → W": "M 182 92 L 18 92",
+    "E → N": "M 182 92 Q 108 92 108 18",
+    "E → S": "M 182 92 Q 92 92 92 182",
+    "W → E": "M 18 108 L 182 108",
+    "W → S": "M 18 108 Q 92 108 92 182",
+    "W → N": "M 18 108 Q 108 108 108 18",
+  };
 
-  // Background road cross
-  svg.innerHTML += `
-    <rect x="75" y="10" width="50" height="180" fill="rgba(19, 31, 55, 0.4)" stroke="rgba(56,189,248,0.15)" rx="4"/>
-    <rect x="10" y="75" width="180" height="50" fill="rgba(19, 31, 55, 0.4)" stroke="rgba(56,189,248,0.15)" rx="4"/>
-    <circle cx="100" cy="100" r="30" fill="none" stroke="rgba(0,229,255,0.2)" stroke-dasharray="3,3"/>
-    <text x="100" y="24" fill="#64748B" font-size="9" font-family="monospace" text-anchor="middle" font-weight="bold">N</text>
-    <text x="100" y="186" fill="#64748B" font-size="9" font-family="monospace" text-anchor="middle" font-weight="bold">S</text>
-    <text x="22" y="103" fill="#64748B" font-size="9" font-family="monospace" text-anchor="middle" font-weight="bold">W</text>
-    <text x="178" y="103" fill="#64748B" font-size="9" font-family="monospace" text-anchor="middle" font-weight="bold">E</text>
+  // 1. Build Base SVG Geometry & Markers
+  let svgContent = `
+    <defs>
+      <marker id="arrow-cyan" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 1 L 10 5 L 0 9 z" fill="#00E5FF" />
+      </marker>
+      <marker id="arrow-lime" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 1 L 10 5 L 0 9 z" fill="#C8F23A" />
+      </marker>
+      <marker id="arrow-muted" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+        <path d="M 0 1 L 10 5 L 0 9 z" fill="rgba(100, 116, 139, 0.35)" />
+      </marker>
+      <filter id="glow-cyan" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="2" result="blur" />
+        <feComposite in="SourceGraphic" in2="blur" operator="over" />
+      </filter>
+    </defs>
+    <!-- Background Road Layout -->
+    <rect x="74" y="10" width="52" height="180" fill="rgba(19, 31, 55, 0.6)" stroke="rgba(56,189,248,0.2)" rx="4"/>
+    <rect x="10" y="74" width="180" height="52" fill="rgba(19, 31, 55, 0.6)" stroke="rgba(56,189,248,0.2)" rx="4"/>
+    <circle cx="100" cy="100" r="26" fill="rgba(9, 13, 22, 0.85)" stroke="rgba(0,229,255,0.3)" stroke-dasharray="3,3"/>
+    <text x="100" y="24" fill="#94A3B8" font-size="9.5" font-family="monospace" text-anchor="middle" font-weight="bold">N</text>
+    <text x="100" y="186" fill="#94A3B8" font-size="9.5" font-family="monospace" text-anchor="middle" font-weight="bold">S</text>
+    <text x="22" y="103" fill="#94A3B8" font-size="9.5" font-family="monospace" text-anchor="middle" font-weight="bold">W</text>
+    <text x="178" y="103" fill="#94A3B8" font-size="9.5" font-family="monospace" text-anchor="middle" font-weight="bold">E</text>
   `;
 
-  // Draw movement list items and SVG vectors
+  const maxCount = Math.max(1, ...movements.map(m => m.count));
+
+  // 2. Draw Movement Vectors
   movements.forEach(m => {
-    // Populate list items
+    const dPath = pathMap[m.movement];
+    if (!dPath) return;
+
+    const isSelected = (l3MovementFilter === m.movement);
+    const hasVolume = m.count > 0;
+    const strokeWidth = hasVolume ? Math.max(1.8, Math.min(6.5, 1.8 + (m.count / maxCount) * 4.7)) : 1.0;
+    
+    let strokeColor = "rgba(100, 116, 139, 0.25)";
+    let marker = "url(#arrow-muted)";
+    let filterAttr = "";
+
+    if (isSelected) {
+      strokeColor = "#C8F23A";
+      marker = "url(#arrow-lime)";
+      filterAttr = 'filter="url(#glow-cyan)"';
+    } else if (hasVolume) {
+      const alpha = Math.max(0.4, Math.min(1.0, 0.35 + (m.count / maxCount) * 0.65));
+      strokeColor = `rgba(0, 229, 255, ${alpha.toFixed(2)})`;
+      marker = "url(#arrow-cyan)";
+      if (m.count / maxCount > 0.35) filterAttr = 'filter="url(#glow-cyan)"';
+    }
+
+    svgContent += `
+      <path id="svgMov_${m.movement.replace(/[\s→]+/g, '_')}" d="${dPath}" 
+            stroke="${strokeColor}" stroke-width="${strokeWidth}" 
+            stroke-linecap="round" fill="none" 
+            marker-end="${marker}" ${filterAttr}
+            style="cursor:pointer; transition:all 0.2s;"
+            onclick="applyL3Filter('movement', '${m.movement}', 'MOVEMENT: ${m.movement}')">
+        <title>${m.movement}: ${m.count} vehicles (${m.percentage}%)</title>
+      </path>
+    `;
+
+    // Populate List Items
     const item = document.createElement("div");
     item.className = "movement-item";
-    if (l3MovementFilter === m.movement) item.classList.add("active");
+    if (isSelected) item.classList.add("active");
     item.onclick = () => {
       if (l3MovementFilter === m.movement) clearL3Filter();
       else applyL3Filter("movement", m.movement, `MOVEMENT: ${m.movement}`);
     };
 
     item.innerHTML = `
-      <span style="color:var(--text-primary); font-weight:600;">${m.movement}</span>
-      <span class="badge" style="background:rgba(56,189,248,0.15); color:var(--accent-cyan); font-size:9px;">${m.count} (${m.percentage}%)</span>
+      <span style="color:${hasVolume ? 'var(--text-primary)' : 'var(--text-muted)'}; font-weight:600;">${m.movement}</span>
+      <span class="badge" style="background:${hasVolume ? 'rgba(56,189,248,0.15)' : 'transparent'}; color:${hasVolume ? 'var(--accent-cyan)' : 'var(--text-muted)'}; font-size:9px;">${m.count} (${m.percentage}%)</span>
     `;
     list.appendChild(item);
   });
+
+  svg.innerHTML = svgContent;
 }
 
 /* ── 3. Lane Volume Breakdown ──────────────────────────────────────────────── */
